@@ -89,7 +89,16 @@ for year in years:
             # Construct the dynamic API URL
             url = f'https://api.sportsdata.io/v3/nfl/scores/json/ScoresBasicFinal/{year}REF/{week}?key={api_key}'
             # url = f'https://api.sportsdata.io/v3/nfl/scores/json/ScoresBasicFinal/2024REF/6?key={api_key}'
-            
+
+            # link to api page https://sportsdata.io/developers/api-documentation/nfl#scores-game-state
+            # ensure that API has the following fields:
+                # season - int4
+                # sesontype - int4
+                # week - int4
+                # hometeam - text
+                # awayteam - test
+
+    
             # Print the URL to verify it's constructed correctly
             print(f"Fetching data from: {url}")
             

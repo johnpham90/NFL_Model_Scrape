@@ -1,0 +1,67 @@
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+
+# URL of the page you want to scrape
+url = 'https://www.pro-football-reference.com/boxscores/'  # Replace with the actual URL
+
+# Fetch the webpage content
+response = requests.get(url)
+
+if response.status_code == 200:
+    # Parse the HTML content
+    soup = BeautifulSoup(response.content, 'lxml')
+    
+    # Extract the year and week from the section heading (e.g., "2024 Week 7")
+    section_heading = soup.find('div', class_='section_heading').find('h2').text.strip()
+    year = section_heading.split(' ')[0]  # Extract year (e.g., "2024")
+    week = section_heading.split(' ')[2]  # Extract week (e.g., "7")
+    
+    # Find all game summaries
+    game_summaries = soup.find_all('div', class_='game_summary expanded nohover')
+    
+    # List to hold the extracted game data
+    games = []
+    
+    # Loop through each game summary
+    for game in game_summaries:
+        # Extract the date (if available)
+        date = game.find('tr', class_='date').text.strip() if game.find('tr', class_='date') else "No Date"
+
+        # Extract both the rows (first row is away team, second row is home team)
+        rows = game.find_all('tr')
+        
+        if len(rows) >= 2:
+            # Extracting the away team (first row) and home team (second row)
+            away_row = rows[1]
+            home_row = rows[2]
+
+            # Extracting away team and home team names and scores
+            away_team = away_row.find('a').text.strip()
+            away_score = away_row.find('td', class_='right').text.strip()
+
+            home_team = home_row.find('a').text.strip()
+            home_score = home_row.find('td', class_='right').text.strip()
+
+            # Append the data into the games list
+            games.append({
+                'Date': date,
+                'Year': year,  # Add year to each record
+                'Week': week,  # Add week to each record
+                'Away Team': away_team,
+                'Away Score': away_score,
+                'Home Team': home_team,
+                'Home Score': home_score
+            })
+    
+    # Convert the data to a pandas DataFrame
+    df = pd.DataFrame(games)
+    
+    # Create the dynamic file name
+    file_name = f'nfl_scores{year}Week{week}.csv'
+
+    # Save the data to a CSV file with dynamic file name
+    df.to_csv(file_name, index=False)
+    print(f"Data saved to {file_name}")
+else:
+    print(f"Failed to retrieve the webpage. Status code: {response.status_code}")

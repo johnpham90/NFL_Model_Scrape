@@ -5,8 +5,8 @@ import psycopg2
 api_key = '604a48fab9784f9fb2d6101874bec4bb'
 
 # Define the range of years and weeks to fetch
-years = [2022]  # Adjust this range as needed
-weeks = range(1, 18)  # Regular NFL season has 17 weeks
+years = [2024]  # Adjust this range as needed
+weeks = range(6, 8)  # Regular NFL season has 17 weeks
 
 # Connect to your PostgreSQL database
 conn = psycopg2.connect(
@@ -53,42 +53,53 @@ def add_columns_if_not_exist(cursor, table_name, json_data):
                 print(f"Added column {key} of type {column_type} to {table_name}")
 
 # Step 2: Check if a game already exists in the table
-def game_exists(cursor, table_name, game_id):
-    cursor.execute(f"SELECT 1 FROM {table_name} WHERE gameid = %s", (game_id,))
+def game_exists(cursor, table_name, stagingid):
+    cursor.execute(f"SELECT 1 FROM {table_name} WHERE gameid = %s", (stagingid,))
     return cursor.fetchone() is not None
 
 # Step 3: Insert the data into the table
-def insert_data(cursor, table_name, record):
+def insert_or_update_data(cursor, table_name, record):
     # Cast boolean values to integers for the 'isgameover' field
     for key, value in record.items():
         if isinstance(value, bool):
             record[key] = int(value)  # Convert boolean to integer (True -> 1, False -> 0)
-    
-    # Skip the record if the gameid already exists
-    if game_exists(cursor, table_name, record.get('GameID')):
-        print(f"Skipping game {record.get('GameID')}, already exists.")
-        return  # Skip this record if it already exists
-    
-    # Create an insert query with dynamic columns
-    columns = ', '.join(record.keys())
-    values = ', '.join(['%s'] * len(record))  # Placeholder for values
-    insert_query = f"INSERT INTO {table_name} ({columns}) VALUES ({values})"
-    
-    try:
-        # Execute the insert query
-        cursor.execute(insert_query, list(record.values()))
-        print(f"Inserted data into {table_name}")
-    except Exception as e:
-        print(f"Error inserting data: {e}")
-        conn.rollback()  # Rollback transaction if there's an error
 
+    # Check if the game already exists in the table
+    game_id = record.get('GameID')
+    if game_exists(cursor, table_name, game_id):
+        # Construct the update query
+        update_query = f"UPDATE {table_name} SET "
+        update_query += ', '.join([f"{key} = %s" for key in record.keys()])
+        update_query += " WHERE gameid = %s"
+        
+        try:
+            # Execute the update query
+            cursor.execute(update_query, list(record.values()) + [game_id])
+            print(f"Updated data for game {game_id} in {table_name}")
+        except Exception as e:
+            print(f"Error updating data: {e}")
+            conn.rollback()  # Rollback transaction if there's an error
+    else:
+        # Create an insert query with dynamic columns
+        columns = ', '.join(record.keys())
+        values = ', '.join(['%s'] * len(record))  # Placeholder for values
+        insert_query = f"INSERT INTO {table_name} ({columns}) VALUES ({values})"
+        
+        try:
+            # Execute the insert query
+            cursor.execute(insert_query, list(record.values()))
+            print(f"Inserted data into {table_name} for game {game_id}")
+        except Exception as e:
+            print(f"Error inserting data: {e}")
+            conn.rollback()  # Rollback transaction if there's an error
 # Step 4: Fetch data for each year and week
 for year in years:
     for week in weeks:
         try:
             # Construct the dynamic API URL
             url = f'https://api.sportsdata.io/v3/nfl/scores/json/ScoresBasicFinal/{year}REF/{week}?key={api_key}'
-            # url = f'https://api.sportsdata.io/v3/nfl/scores/json/ScoresBasicFinal/2024REF/6?key={api_key}'
+
+            # url = f'https://api.sportsdata.io/v3/nfl/scores/json/ScoresBasicFinal/2024REF/6?key=604a48fab9784f9fb2d6101874bec4bb'
 
             # link to api page https://sportsdata.io/developers/api-documentation/nfl#scores-game-state
             # ensure that API has the following fields:
@@ -97,6 +108,7 @@ for year in years:
                 # week - int4
                 # hometeam - text
                 # awayteam - test
+                # date
 
     
             # Print the URL to verify it's constructed correctly
@@ -113,7 +125,7 @@ for year in years:
                 
                 # Insert data into the database for each record
                 for record in json_data:
-                    insert_data(cursor, table_name, record)
+                    insert_or_update_data(cursor, table_name, record)
                 
                 # Commit after processing each week
                 conn.commit()

@@ -1,6 +1,17 @@
 import requests
 import psycopg2
 from psycopg2 import sql
+from datetime import datetime
+import pytz
+
+# Function to convert UTC time to Central Time
+def convert_to_central_time(utc_time_str):
+    utc_time = datetime.strptime(utc_time_str, '%Y-%m-%dT%H:%M:%SZ')
+    utc_zone = pytz.utc
+    utc_time = utc_zone.localize(utc_time)
+    central_zone = pytz.timezone('US/Central')
+    central_time = utc_time.astimezone(central_zone)
+    return central_time
 
 # Function to check and create columns if they do not exist in the table
 def ensure_columns_exist(cur, table_name, columns):
@@ -25,7 +36,10 @@ def load_data_per_bookmaker(data, conn, cur):
         game_id = game['id']  # Extract the unique game ID
         home_team = game['home_team']
         away_team = game['away_team']
-        commence_time = game['commence_time']
+        commence_time_utc = game['commence_time']
+
+        # Convert commence_time from UTC to Central Time
+        commence_time_central = convert_to_central_time(commence_time_utc)
 
         # Loop through each bookmaker for the game
         for bookmaker in game['bookmakers']:
@@ -89,7 +103,7 @@ def load_data_per_bookmaker(data, conn, cur):
                     total_under = EXCLUDED.total_under,
                     total_under_price = EXCLUDED.total_under_price;
             """)
-            cur.execute(upsert_query, (game_id, home_team, away_team, commence_time, bookmaker_name,
+            cur.execute(upsert_query, (game_id, home_team, away_team, commence_time_central, bookmaker_name,
                                        h2h_home_price, h2h_away_price,
                                        spread_home, spread_home_price,
                                        spread_away, spread_away_price,

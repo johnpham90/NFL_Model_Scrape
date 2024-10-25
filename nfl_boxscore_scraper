@@ -1,67 +1,98 @@
+import os
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 
-# URL of the page you want to scrape
-url = 'https://www.pro-football-reference.com/boxscores/'  # Replace with the actual URL
+# Define directory path and base URLs
+base_url = "https://www.pro-football-reference.com"
+main_url = f"{base_url}/years"
+save_path = "C:\\NFLStats\\data"
 
-# Fetch the webpage content
-response = requests.get(url)
-
-if response.status_code == 200:
-    # Parse the HTML content
-    soup = BeautifulSoup(response.content, 'lxml')
+# Function to scrape data by season and week
+def scrape_nfl_data(season, week):
+    # Define season-week URL
+    week_url = f"{main_url}/{season}/week_{week}.htm"
     
-    # Extract the year and week from the section heading (e.g., "2024 Week 7")
-    section_heading = soup.find('div', class_='section_heading').find('h2').text.strip()
-    year = section_heading.split(' ')[0]  # Extract year (e.g., "2024")
-    week = section_heading.split(' ')[2]  # Extract week (e.g., "7")
+    # Create season-week directory if it doesn't exist
+    week_path = os.path.join(save_path, str(season), f"Week_{week}")
+    os.makedirs(week_path, exist_ok=True)
+    
+    # Send request and parse HTML
+    response = requests.get(week_url)
+    soup = BeautifulSoup(response.text, 'html.parser')
     
     # Find all game summaries
-    game_summaries = soup.find_all('div', class_='game_summary expanded nohover')
+    game_summaries = soup.select('div.game_summary')
     
-    # List to hold the extracted game data
-    games = []
-    
-    # Loop through each game summary
     for game in game_summaries:
-        # Extract the date (if available)
-        date = game.find('tr', class_='date').text.strip() if game.find('tr', class_='date') else "No Date"
-
-        # Extract both the rows (first row is away team, second row is home team)
-        rows = game.find_all('tr')
+        # Parse game summary and box score URL
+        date = game.find('div', class_='date').text.strip()
+        teams = game.find_all('td', class_='team')
+        away_team = teams[0].text.strip()
+        home_team = teams[1].text.strip()
+        boxscore_link = game.find('a', text='Boxscore')['href']
         
-        if len(rows) >= 2:
-            # Extracting the away team (first row) and home team (second row)
-            away_row = rows[1]
-            home_row = rows[2]
+        # Fetch and parse box score details
+        scrape_box_score(base_url + boxscore_link, season, week, date, away_team, home_team, week_path)
 
-            # Extracting away team and home team names and scores
-            away_team = away_row.find('a').text.strip()
-            away_score = away_row.find('td', class_='right').text.strip()
-
-            home_team = home_row.find('a').text.strip()
-            home_score = home_row.find('td', class_='right').text.strip()
-
-            # Append the data into the games list
-            games.append({
-                'Date': date,
-                'Year': year,  # Add year to each record
-                'Week': week,  # Add week to each record
-                'Away Team': away_team,
-                'Away Score': away_score,
-                'Home Team': home_team,
-                'Home Score': home_score
-            })
+# Function to scrape box score details
+def scrape_box_score(url, season, week, date, away_team, home_team, save_dir):
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, 'html.parser')
     
-    # Convert the data to a pandas DataFrame
-    df = pd.DataFrame(games)
+    # Initialize data containers
+    summary_data = {'Date': date, 'Season': season, 'Week': week, 'Away Team': away_team, 'Home Team': home_team}
     
-    # Create the dynamic file name
-    file_name = f'nfl_scores{year}Week{week}.csv'
+    # Collect game summary details
+    game_info = soup.find('div', {'id': 'game_info'})
+    for row in game_info.find_all('tr'):
+        cols = row.find_all('td')
+        if len(cols) > 1:
+            summary_data[cols[0].text.strip()] = cols[1].text.strip()
+    
+    # Save game summary data
+    summary_df = pd.DataFrame([summary_data])
+    summary_df.to_csv(os.path.join(save_dir, 'Game_Summary.csv'), index=False)
 
-    # Save the data to a CSV file with dynamic file name
-    df.to_csv(file_name, index=False)
-    print(f"Data saved to {file_name}")
-else:
-    print(f"Failed to retrieve the webpage. Status code: {response.status_code}")
+    # Collect and save team stats
+    team_stats = parse_table(soup, 'team_stats')
+    save_stats_to_csv(team_stats, 'Team_Stats', season, week, date, away_team, home_team, save_dir)
+    
+    # Collect and save advanced stats (Passing, Rushing, etc.)
+    sections = ['advanced_passing', 'advanced_rushing', 'advanced_receiving', 'advanced_defense', 'returns', 'kicking']
+    for section in sections:
+        stats = parse_table(soup, section)
+        save_stats_to_csv(stats, section.title().replace('_', ' '), season, week, date, away_team, home_team, save_dir)
+
+# Function to parse individual stats table
+def parse_table(soup, table_id):
+    table = soup.find('table', {'id': table_id})
+    if table:
+        df = pd.read_html(str(table))[0]
+        return df
+    return pd.DataFrame()
+
+# Function to save parsed stats to CSV with metadata
+def save_stats_to_csv(df, section_name, season, week, date, away_team, home_team, save_dir):
+    if not df.empty:
+        # Add metadata columns
+        df['Date'] = date
+        df['Season'] = season
+        df['Week'] = week
+        df['Away Team'] = away_team
+        df['Home Team'] = home_team
+        # Save DataFrame to CSV
+        df.to_csv(os.path.join(save_dir, f"{section_name}.csv"), index=False)
+
+# Loop through seasons and weeks
+def main():
+    seasons = [2022, 2023]  # Define your seasons of interest
+    weeks = range(1, 18)    # Define week range
+
+    for season in seasons:
+        for week in weeks:
+            print(f"Scraping data for Season {season}, Week {week}")
+            scrape_nfl_data(season, week)
+
+if __name__ == "__main__":
+    main()

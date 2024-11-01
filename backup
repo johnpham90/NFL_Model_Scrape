@@ -121,14 +121,13 @@ def process_team_stats(table, away_team, home_team):
 
 def scrape_game_summary(main_page_soup, box_score_soup, date_text, season, week, away_team, home_team):
     game_info = {
-        'Date': date_text,
+        'Date': None,
         'Season': season,
         'Week': week,
         'Away Team': away_team,
         'Home Team': home_team,
         'Away Score': None,
         'Home Score': None,
-        'Game_Time': None,  # Added game time field
         'Won_Toss': None,
         'Roof': None,
         'Surface': None,
@@ -138,20 +137,13 @@ def scrape_game_summary(main_page_soup, box_score_soup, date_text, season, week,
         'Over_Under': None
     }
     
-    # Get game time
-    scorebox_meta = box_score_soup.find('div', class_='scorebox_meta')
-    if scorebox_meta:
-        start_time_div = scorebox_meta.find(string=lambda text: 'Start Time' in text if text else False)
-        if start_time_div:
-            # The time is in the next element
-            time_text = start_time_div.find_next(string=True)
-            if time_text:
-                # Clean the time string by removing ': ' prefix
-                cleaned_time = time_text.strip().replace(': ', '')
-                game_info['Game_Time'] = cleaned_time
-                print(f"Found game time: {cleaned_time}")
+    # Get the actual date from the game summary
+    date_row = main_page_soup.find('tr', class_='date')
+    if date_row:
+        date_cell = date_row.find('td')
+        if date_cell:
+            game_info['Date'] = date_cell.text.strip()
     
-    # Rest of the function remains the same...
     # Get scores from main page
     loser_row = main_page_soup.find('tr', class_='loser')
     winner_row = main_page_soup.find('tr', class_='winner')
@@ -173,47 +165,82 @@ def scrape_game_summary(main_page_soup, box_score_soup, date_text, season, week,
             else:
                 game_info['Away Score'] = winner_score
                 game_info['Home Score'] = loser_score
-
-    # Look for game info in comments
-    div = box_score_soup.find('div', id='all_game_info')
-    if div:
-        comments = div.find_all(string=lambda text: isinstance(text, Comment))
+    
+    print("Looking for game info...")
+    
+    # First try to find the game info div directly
+    game_info_div = box_score_soup.find('div', {'class': 'table_container is_setup', 'id': 'div_game_info'})
+    
+    if game_info_div:
+        print("Found game info div directly")
+        table = game_info_div.find('table', {'id': 'game_info'})
         
-        for comment in comments:
-            if 'game_info' in comment.lower():
-                comment_soup = BeautifulSoup(comment, 'html.parser')
-                table = comment_soup.find('table', id='game_info')
+        if table:
+            print("Found game info table")
+            for row in table.find_all('tr'):
+                header_cell = row.find('th', {'class': 'center', 'data-stat': 'info'})
+                value_cell = row.find('td', {'class': 'center', 'data-stat': 'stat'})
                 
-                if table:
-                    for row in table.find_all('tr'):
-                        header_cell = row.find('th', {'data-stat': 'info'})
-                        value_cell = row.find('td', {'data-stat': 'stat'})
+                if header_cell and value_cell:
+                    header_text = header_cell.text.strip()
+                    value_text = value_cell.text.strip()
+                    print(f"Found game info: {header_text} = {value_text}")
+                    
+                    if "Won Toss" in header_text:
+                        game_info['Won_Toss'] = value_text
+                    elif header_text == "Roof":
+                        game_info['Roof'] = value_text
+                    elif header_text == "Surface":
+                        game_info['Surface'] = value_text
+                    elif header_text == "Duration":
+                        game_info['Duration'] = value_text
+                    elif header_text == "Attendance":
+                        game_info['Attendance'] = value_text
+                    elif "Vegas Line" in header_text:
+                        game_info['Vegas_Line'] = value_text
+                    elif "Over/Under" in header_text:
+                        game_info['Over_Under'] = value_text.split()[0] if value_text else None
+    else:
+        print("Trying to find game info in comments...")
+        comment_soup = find_commented_table(box_score_soup.find('div', id='all_game_info'), 'game_info')
+        
+        if comment_soup:
+            print("Found game info in comments")
+            table = comment_soup.find('table', {'id': 'game_info'})
+            
+            if table:
+                print("Found game info table in comments")
+                for row in table.find_all('tr'):
+                    header_cell = row.find('th', {'data-stat': 'info'})
+                    value_cell = row.find('td', {'data-stat': 'stat'})
+                    
+                    if header_cell and value_cell:
+                        header_text = header_cell.text.strip()
+                        value_text = value_cell.text.strip()
+                        print(f"Found game info in comments: {header_text} = {value_text}")
                         
-                        if header_cell and value_cell:
-                            header_text = header_cell.text.strip()
-                            value_text = value_cell.text.strip()
-                            
-                            if "Won Toss" in header_text:
-                                game_info['Won_Toss'] = value_text
-                            elif "Roof" in header_text:
-                                game_info['Roof'] = value_text
-                            elif "Surface" in header_text:
-                                game_info['Surface'] = value_text
-                            elif "Duration" in header_text:
-                                game_info['Duration'] = value_text
-                            elif "Attendance" in header_text:
-                                game_info['Attendance'] = value_text
-                            elif "Vegas Line" in header_text:
-                                game_info['Vegas_Line'] = value_text
-                            elif "Over/Under" in header_text:
-                                game_info['Over_Under'] = value_text.split()[0] if value_text else None
+                        if "Won Toss" in header_text:
+                            game_info['Won_Toss'] = value_text
+                        elif header_text == "Roof":
+                            game_info['Roof'] = value_text
+                        elif header_text == "Surface":
+                            game_info['Surface'] = value_text
+                        elif header_text == "Duration":
+                            game_info['Duration'] = value_text
+                        elif header_text == "Attendance":
+                            game_info['Attendance'] = value_text
+                        elif "Vegas Line" in header_text:
+                            game_info['Vegas_Line'] = value_text
+                        elif "Over/Under" in header_text:
+                            game_info['Over_Under'] = value_text.split()[0] if value_text else None
+        else:
+            print("No game info found in comments")
     
     print("\nFinal game info collected:")
     for key, value in game_info.items():
         print(f"{key}: {value}")
     
     return pd.DataFrame([game_info])
-
 def scrape_box_score(url, season, week, date_text, away_team, home_team, data_storage):
     time.sleep(2)
     
@@ -300,52 +327,38 @@ def scrape_box_score(url, season, week, date_text, away_team, home_team, data_st
             continue
 
         elif stat_type == 'Drives':
-            drives_data = []
             # Process away team drives
-            away_div = soup.find('div', id='all_vis_drives')
+            away_div = soup.find('div', id=config['wrapper_id'])
             if away_div:
-                comments = away_div.find_all(string=lambda text: isinstance(text, Comment))
-                for comment in comments:
-                    if 'vis_drives' in comment.lower():
-                        comment_soup = BeautifulSoup(comment, 'html.parser')
-                        away_table = comment_soup.find('table', id='vis_drives')
-                        if away_table:
-                            away_data = process_drive_stats(away_table, away_team, False)
-                            if away_data:
-                                away_df = pd.DataFrame(away_data)
-                                away_df['Date'] = date_text
-                                away_df['Season'] = season
-                                away_df['Week'] = week
-                                away_df['Away Team'] = away_team
-                                away_df['Home Team'] = home_team
-                                drives_data.append(away_df)
-                                print(f"Successfully scraped {away_team} drives data")
+                away_table = find_commented_table(away_div, config['table_id'])
+                if away_table:
+                    away_data = process_drive_stats(away_table, away_team, False)
+                    if away_data:
+                        away_df = pd.DataFrame(away_data)
+                        away_df['Date'] = date_text
+                        away_df['Season'] = season
+                        away_df['Week'] = week
+                        away_df['Away Team'] = away_team
+                        away_df['Home Team'] = home_team
+                        data_storage[stat_type].append(away_df)
+                        print(f"Successfully scraped {away_team} drives data")
             
             # Process home team drives
-                        home_div = soup.find('div', id='all_home_drives')
+            home_div = soup.find('div', id=config['home_wrapper_id'])
             if home_div:
-                comments = home_div.find_all(string=lambda text: isinstance(text, Comment))
-                for comment in comments:
-                    if 'home_drives' in comment.lower():
-                        comment_soup = BeautifulSoup(comment, 'html.parser')
-                        home_table = comment_soup.find('table', id='home_drives')
-                        if home_table:
-                            home_data = process_drive_stats(home_table, home_team, True)
-                            if home_data:
-                                home_df = pd.DataFrame(home_data)
-                                home_df['Date'] = date_text
-                                home_df['Season'] = season
-                                home_df['Week'] = week
-                                home_df['Away Team'] = away_team
-                                home_df['Home Team'] = home_team
-                                drives_data.append(home_df)
-                                print(f"Successfully scraped {home_team} drives data")
-            
-            if drives_data:
-                data_storage[stat_type].extend(drives_data)
-            
+                home_table = find_commented_table(home_div, config['home_table_id'])
+                if home_table:
+                    home_data = process_drive_stats(home_table, home_team, True)
+                    if home_data:
+                        home_df = pd.DataFrame(home_data)
+                        home_df['Date'] = date_text
+                        home_df['Season'] = season
+                        home_df['Week'] = week
+                        home_df['Away Team'] = away_team
+                        home_df['Home Team'] = home_team
+                        data_storage[stat_type].append(home_df)
+                        print(f"Successfully scraped {home_team} drives data")
             continue
-
 
         # Process other stats
         div = soup.find('div', id=f"all_{config['table_id']}")

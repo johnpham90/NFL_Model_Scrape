@@ -1,0 +1,730 @@
+import os
+import requests
+import pandas as pd
+from bs4 import BeautifulSoup
+from bs4.element import Comment
+import time
+import traceback
+import re 
+import random
+
+# Base URL and save path
+base_url = "https://www.pro-football-reference.com"
+save_path = "C:\\NFLStats\\data"
+
+def make_request_with_retry(url, headers, max_retries=3, timeout=30):
+    """Make HTTP request with retry logic"""
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(url, headers=headers, timeout=timeout)
+            response.raise_for_status()
+            return response
+        except requests.exceptions.Timeout:
+            if attempt == max_retries - 1:
+                print(f"Failed to fetch {url} after {max_retries} attempts due to timeout")
+                raise
+            print(f"Timeout occurred. Retrying... (Attempt {attempt + 1} of {max_retries})")
+            time.sleep(5 * (attempt + 1))
+        except requests.exceptions.RequestException as e:
+            if attempt == max_retries - 1:
+                print(f"Failed to fetch {url} after {max_retries} attempts: {str(e)}")
+                raise
+            print(f"Error occurred: {str(e)}. Retrying... (Attempt {attempt + 1} of {max_retries})")
+            time.sleep(5 * (attempt + 1))
+
+def safe_float_convert(cell):
+    """Safely convert cell text to float."""
+    if cell is None:
+        return None
+    try:
+        text = cell.text.strip()
+        return float(text) if text.replace('.', '', 1).isdigit() else None
+    except (ValueError, AttributeError):
+        return None
+    
+def process_drive_details(table, away_team, home_team):
+    """Process drive details from play by play table including EPB and EPA with full diagnostic logging"""
+    drive_details = []
+    print("Processing play-by-play table...")
+    
+    if table:
+        current_quarter = '1'
+        rows = table.find_all('tr')
+        print(f"Found {len(rows)} rows in play-by-play table")
+        
+        for i, row in enumerate(rows):
+            # Skip header rows or rows without data
+            if not row.find_all(['td', 'th']) or 'thead' in row.get('class', []):
+                continue
+                
+            # Handle quarter changes
+            quarter_cell = row.find('th', {'data-stat': 'quarter'})
+            if quarter_cell and quarter_cell.text.strip().isdigit():
+                current_quarter = quarter_cell.text.strip()
+            
+            # Get all relevant cells
+            cells = {
+                'time': row.find('td', {'data-stat': 'qtr_time_remain'}),
+                'down': row.find('td', {'data-stat': 'down'}),
+                'togo': row.find('td', {'data-stat': 'yds_to_go'}),
+                'location': row.find('td', {'data-stat': 'location'}),
+                'detail': row.find('td', {'data-stat': 'detail'}),
+                'epb': row.find('td', {'data-stat': 'exp_pts_before'}),
+                'epa': row.find('td', {'data-stat': 'exp_pts_after'})
+            }
+            
+            # Only process rows with time and detail
+            if cells['time'] and cells['detail']:
+                # Get the time, handling potential links
+                time_text = cells['time'].text.strip()
+                if cells['time'].find('a'):
+                    time_text = cells['time'].find('a').text.strip()
+
+                # Log cell content before attempting conversion
+                epb_raw = cells['epb'].text.strip() if cells['epb'] else 'None'
+                epa_raw = cells['epa'].text.strip() if cells['epa'] else 'None'
+                print(f"Row {i}: EPB raw content: '{epb_raw}'")
+                print(f"Row {i}: EPA raw content: '{epa_raw}'")
+
+                try:
+                    # Use safe conversion for EPB and EPA values
+                    epb_value = safe_float_convert(cells['epb'])
+                    epa_value = safe_float_convert(cells['epa'])
+                    
+                    # Log converted values
+                    print(f"Row {i}: EPB after conversion: {epb_value}")
+                    print(f"Row {i}: EPA after conversion: {epa_value}")
+                except Exception as e:
+                    print(f"Row {i}: Error converting EPB/EPA values - {e}")
+                    continue  # Skip this row if conversion fails
+                
+                # Create the basic detail dictionary
+                detail = {
+                    'Quarter': current_quarter,
+                    'Time': time_text,
+                    'Down': cells['down'].text.strip() if cells['down'] else None,
+                    'ToGo': cells['togo'].text.strip() if cells['togo'] else None,
+                    'Location': cells['location'].text.strip() if cells['location'] else None,
+                    'Detail': cells['detail'].get_text(separator=' ').strip(),
+                    'EPB': epb_value,
+                    'EPA': epa_value
+                }
+                
+                # Add parsed play information
+                if detail['Detail']:
+                    play_info = parse_play_details(detail['Detail'])
+                    detail.update(play_info)
+                    print(f"Updated detail: {detail}")
+                
+                drive_details.append(detail)
+                print(f"Added play: Q{detail['Quarter']} - {detail['Time']} - {detail['Detail'][:50]}...")
+    
+    print(f"Processed {len(drive_details)} plays")
+    return drive_details
+
+def scrape_game_details(main_page_soup, box_score_soup, date_text, season, week, away_team, home_team):
+    """Scrape game details including drive information"""
+    print(f"\nProcessing game: {away_team} vs {home_team}")
+    
+    game_info = {
+        'Date': date_text,
+        'Season': season,
+        'Week': week,
+        'Away Team': away_team,
+        'Home Team': home_team,
+        'Game_Time': None
+    }
+    
+    # Get game time
+    scorebox_meta = box_score_soup.find('div', class_='scorebox_meta')
+    if scorebox_meta:
+        start_time_div = scorebox_meta.find(string=lambda text: 'Start Time' in text if text else False)
+        if start_time_div:
+            time_text = start_time_div.find_next(string=True)
+            if time_text:
+                cleaned_time = time_text.strip().replace(': ', '')
+                game_info['Game_Time'] = cleaned_time
+                print(f"Found game time: {cleaned_time}")
+    
+    # Find play-by-play div and table
+    play_by_play_div = box_score_soup.find('div', id='div_pbp')
+    if play_by_play_div:
+        # Try to find the table directly first
+        pbp_table = play_by_play_div.find('table', {'id': 'pbp'})
+        
+        # If not found directly, look in comments
+        if not pbp_table:
+            comments = play_by_play_div.find_all(string=lambda text: isinstance(text, Comment))
+            for comment in comments:
+                if 'table' in comment.lower() and 'pbp' in comment.lower():
+                    comment_soup = BeautifulSoup(comment, 'html.parser')
+                    pbp_table = comment_soup.find('table', {'id': 'pbp'})
+                    if pbp_table:
+                        break
+        
+        if pbp_table:
+            print("Found play-by-play table")
+            drive_details = process_drive_details(pbp_table, away_team, home_team)
+            if drive_details:
+                drive_df = pd.DataFrame(drive_details)
+                
+                # Add game info to each row
+                for key, value in game_info.items():
+                    drive_df[key] = value
+                
+                # Reorder columns
+                columns_order = [
+                    'Date', 'Season', 'Week', 'Away Team', 'Home Team', 'Game_Time',
+                    'Quarter', 'Time', 'Down', 'ToGo', 'Location', 'Detail',
+                    'EPB', 'EPA'
+                ]
+                
+                # Ensure all columns exist
+                for col in columns_order:
+                    if col not in drive_df.columns:
+                        drive_df[col] = None
+                
+                drive_df = drive_df[columns_order]
+                print(f"Successfully processed {len(drive_df)} plays")
+                return drive_df
+            else:
+                print("No drive details found in table")
+        else:
+            print("Could not find play-by-play table")
+    else:
+        print("Could not find play-by-play div")
+    
+    return pd.DataFrame()
+
+def extract_commented_html(soup, div_id):
+    """Extract HTML from comments within a div"""
+    div = soup.find('div', id=div_id)
+    if not div:
+        return None
+        
+    # Find comments in the div
+    from bs4.element import Comment
+    comments = div.find_all(string=lambda text: isinstance(text, Comment))
+    
+    # Parse the first comment that contains a table
+    for comment in comments:
+        if 'table' in comment.lower():
+            comment_soup = BeautifulSoup(comment, 'html.parser')
+            return comment_soup
+            
+    return None
+
+def scrape_game_details(main_page_soup, box_score_soup, date_text, season, week, away_team, home_team):
+    """Scrape game details including drive information"""
+    print(f"\nProcessing game: {away_team} vs {home_team}")
+    
+    game_info = {
+        'Date': date_text,
+        'Season': season,
+        'Week': week,
+        'Away Team': away_team,
+        'Home Team': home_team,
+        'Game_Time': None
+    }
+    
+    # Get game time
+    scorebox_meta = box_score_soup.find('div', class_='scorebox_meta')
+    if scorebox_meta:
+        start_time_div = scorebox_meta.find(string=lambda text: 'Start Time' in text if text else False)
+        if start_time_div:
+            time_text = start_time_div.find_next(string=True)
+            if time_text:
+                cleaned_time = time_text.strip().replace(': ', '')
+                game_info['Game_Time'] = cleaned_time
+                print(f"Found game time: {cleaned_time}")
+    
+    # Extract play-by-play data from comments
+    comment_soup = extract_commented_html(box_score_soup, 'all_pbp')
+    
+    if comment_soup:
+        print("Found play-by-play data in comments")
+        # Find the table in the commented HTML
+        pbp_table = comment_soup.find('table', {'id': 'pbp'})
+        
+        if pbp_table:
+            print("Found play-by-play table")
+            drive_details = process_drive_details(pbp_table, away_team, home_team)
+            if drive_details:
+                drive_df = pd.DataFrame(drive_details)
+                
+                # Add game info to each row
+                for key, value in game_info.items():
+                    drive_df[key] = value
+                
+                # Reorder columns
+                columns_order = [
+                    'Date', 'Season', 'Week', 'Away Team', 'Home Team', 'Game_Time',
+                    'Quarter', 'Time', 'Down', 'ToGo', 'Location', 'Detail',
+                    'EPB', 'EPA'
+                ]
+                
+                # Ensure all columns exist
+                for col in columns_order:
+                    if col not in drive_df.columns:
+                        drive_df[col] = None
+                
+                drive_df = drive_df[columns_order]
+                print(f"Successfully processed {len(drive_df)} plays")
+                return drive_df
+            else:
+                print("No drive details found in table")
+        else:
+            print("Could not find play-by-play table in comments")
+    else:
+        print("No commented play-by-play data found")
+    
+    return pd.DataFrame()
+
+def parse_play_details(detail_text):
+    """Parse play details into structured categories with improved pattern matching."""
+    print(f"Parsing detail: {detail_text}")
+    
+    play_info = {
+        'Play_Type': None,
+        'Primary_Player': None,
+        'Receiver': None,
+        'Sack_By': None,
+        'Run_Location': None,
+        'Run_Gap': None,
+        'Pass_Type': None,
+        'Pass_Location': None,
+        'Pass_Yards': None,
+        'Yards': None,
+        'Tackler': None,
+        'Result': None,
+        'Penalized_Player': None,
+        'Penalty_Yards': None,
+        'Detail': detail_text
+    }
+
+    if not detail_text:
+        return play_info
+
+    # Clean and normalize the text
+    detail_text = ' '.join(detail_text.lower().split())
+
+    # Player name pattern
+    player_pattern = r'(?:[A-Z][A-Za-z\'\.-]*\s*){1,4}'
+
+    # Extract yards first
+    yards_patterns = [
+        r'for (\-?\d+) yards?',
+        r'(\-?\d+) yard (gain|loss)',
+        r'loses (\-?\d+) yards?',
+        r'gains (\d+) yards?',
+        r'punts (\d+) yards'
+    ]
+    for pattern in yards_patterns:
+        yards_match = re.search(pattern, detail_text)
+        if yards_match:
+            yards = int(yards_match.group(1))
+            play_info['Yards'] = yards
+            break
+
+    # First determine the play type
+    if 'penalty' in detail_text:
+        play_info['Play_Type'] = 'Penalty'
+        penalty_match = re.search(fr'penalty on\s+({player_pattern})', detail_text, re.IGNORECASE)
+        if penalty_match:
+            play_info['Penalized_Player'] = penalty_match.group(1).strip().title()
+        penalty_yards = re.search(r'(\d+) yards', detail_text)
+        if penalty_yards:
+            play_info['Penalty_Yards'] = int(penalty_yards.group(1))
+        return play_info
+
+    # Check for run plays first
+    elif any(x in detail_text for x in [
+        'left tackle for', 'right tackle for', 'left guard for', 'right guard for', 
+        'left end for', 'right end for', 'up the middle for', 'runs for', 'rushed for',
+        ' middle run', ' left run', ' right run'
+    ]):
+        play_info['Play_Type'] = 'Run'
+        
+        # Extract runner
+        runner_patterns = [
+            fr'^({player_pattern})\s+(?:left|right|up the middle|runs|rushed)',
+            fr'^({player_pattern})\s+(?:tackle|guard|end)',
+            fr'^({player_pattern})\s+middle'
+        ]
+        for pattern in runner_patterns:
+            runner_match = re.search(pattern, detail_text, re.IGNORECASE)
+            if runner_match:
+                play_info['Primary_Player'] = runner_match.group(1).strip().title()
+                break
+
+        # Run location and gap
+        location_patterns = [
+            (r'left end', ('Left', 'End')),
+            (r'right end', ('Right', 'End')),
+            (r'left tackle', ('Left', 'Tackle')),
+            (r'right tackle', ('Right', 'Tackle')),
+            (r'left guard', ('Left', 'Guard')),
+            (r'right guard', ('Right', 'Guard')),
+            (r'up the middle', ('Middle', 'Middle')),
+            (r' middle', ('Middle', 'Middle')),
+            (r' left(?!\w)', ('Left', None)),
+            (r' right(?!\w)', ('Right', None))
+        ]
+        for pattern, (location, gap) in location_patterns:
+            if re.search(pattern, detail_text):
+                play_info['Run_Location'] = location
+                play_info['Run_Gap'] = gap
+                break
+
+        # Set run result based on yards
+        if play_info['Yards'] is not None:
+            if play_info['Yards'] > 0:
+                play_info['Result'] = 'Gain'
+            elif play_info['Yards'] < 0:
+                play_info['Result'] = 'Loss'
+            else:
+                play_info['Result'] = 'No Gain'
+
+    # Handle scrambles (which are also runs)
+    elif 'scrambles' in detail_text:
+        play_info['Play_Type'] = 'Run'
+        scrambler_match = re.search(fr'^({player_pattern})\s+scrambles', detail_text, re.IGNORECASE)
+        if scrambler_match:
+            play_info['Primary_Player'] = scrambler_match.group(1).strip().title()
+
+        if ' left' in detail_text:
+            play_info['Run_Location'] = 'Left'
+        elif ' right' in detail_text:
+            play_info['Run_Location'] = 'Right'
+        elif ' middle' in detail_text:
+            play_info['Run_Location'] = 'Middle'
+
+        if play_info['Yards'] is not None:
+            if play_info['Yards'] > 0:
+                play_info['Result'] = 'Gain'
+            elif play_info['Yards'] < 0:
+                play_info['Result'] = 'Loss'
+            else:
+                play_info['Result'] = 'No Gain'
+
+    # Handle passes
+    elif 'pass complete' in detail_text or 'pass incomplete' in detail_text or 'sacked' in detail_text or (
+    'pass' in detail_text and any(x in detail_text for x in ['to', 'intended for'])): 
+        play_info['Play_Type'] = 'Pass'
+        
+        # Extract quarterback
+        qb_patterns = [
+            fr'^({player_pattern})\s+pass',
+            fr'^Two Point Attempt:\s+({player_pattern})\s+pass',
+            fr'^({player_pattern})\s+sacked',
+            fr'^({player_pattern})\s+pass\s+incomplete',
+            fr'^({player_pattern})\s+pass\s+complete'
+        ]
+        for pattern in qb_patterns:
+            qb_match = re.search(pattern, detail_text, re.IGNORECASE)
+            if qb_match:
+                play_info['Primary_Player'] = qb_match.group(1).strip().title()
+                break
+
+        # Handle sacks
+        if 'sacked' in detail_text:
+            sacker_match = re.search(fr'sacked by\s+({player_pattern}?)\s*(?=(?:\s+for|\s+is|\s+\(|$|\.))', detail_text, re.IGNORECASE)
+            if sacker_match:
+                play_info['Sack_By'] = sacker_match.group(1).strip().title()
+            play_info['Result'] = 'Sack'
+        else:
+            # Extract receiver if not a sack
+            receiver_patterns = [
+                fr'(?:intended for|complete to|incomplete to|to)\s+({player_pattern}?)\s*(?=(?:\s+for|\s+is|\s+\(|$|\.))',
+            ]
+            for pattern in receiver_patterns:
+                receiver_match = re.search(pattern, detail_text, re.IGNORECASE)
+                if receiver_match:
+                    play_info['Receiver'] = receiver_match.group(1).strip().title()
+                    break
+
+            # Pass type and location
+            if 'short' in detail_text:
+                play_info['Pass_Type'] = 'Short'
+            elif 'deep' in detail_text:
+                play_info['Pass_Type'] = 'Deep'
+
+            if ' left' in detail_text:
+                play_info['Pass_Location'] = 'Left'
+            elif ' right' in detail_text:
+                play_info['Pass_Location'] = 'Right'
+            elif ' middle' in detail_text:
+                play_info['Pass_Location'] = 'Middle'
+
+            # Pass result
+            if 'incomplete' in detail_text:
+                play_info['Result'] = 'Incomplete'
+            elif 'intercepted' in detail_text:
+                play_info['Result'] = 'Interception'
+            elif 'complete' in detail_text:
+                play_info['Result'] = 'Complete'
+                if play_info['Yards'] is not None:
+                    play_info['Pass_Yards'] = play_info['Yards']
+
+    # Handle punts
+    elif 'punts' in detail_text:
+        play_info['Play_Type'] = 'Punt'
+        punter_match = re.search(fr'^({player_pattern})\s+punts', detail_text, re.IGNORECASE)
+        if punter_match:
+            play_info['Primary_Player'] = punter_match.group(1).strip().title()
+        
+        returner_match = re.search(fr'returned by\s+({player_pattern}?)\s*(?=(?:\s+for|\s+is|\s+\(|$|\.))', detail_text, re.IGNORECASE)
+        if returner_match:
+            play_info['Receiver'] = returner_match.group(1).strip().title()
+
+    # Handle kickoffs
+    elif 'kicks off' in detail_text:
+        play_info['Play_Type'] = 'Kickoff'
+        kicker_match = re.search(fr'^({player_pattern})\s+kicks', detail_text, re.IGNORECASE)
+        if kicker_match:
+            play_info['Primary_Player'] = kicker_match.group(1).strip().title()
+
+    # Extract tacklers for any play type
+    tackler_match = re.search(fr'tackle by\s+({player_pattern}(?:\s+and\s+{player_pattern})?)', detail_text, re.IGNORECASE)
+    if tackler_match:
+        tacklers = [name.strip().title() for name in tackler_match.group(1).split(' and ')]
+        play_info['Tackler'] = tacklers
+
+
+    # Handles Extra Points
+    elif 'kicks extra point' in detail_text:
+        play_info['Play_Type'] = 'Extra Point'  # Fixed == to =
+        kicker_match = re.search(fr'^({player_pattern})\s+kicks', detail_text, re.IGNORECASE)
+        if kicker_match:
+            play_info['Primary_Player'] = kicker_match.group(1).strip().title() 
+        if 'good' in detail_text:
+            play_info['Result'] = 'Kick Good'
+        else:
+            play_info['Result'] = 'Missed Kick'
+
+    # Handles Field Goals
+    elif 'field goal' in detail_text:   # Changed if to elif
+        play_info['Play_Type'] = 'Field Goal'  # Fixed == to =
+        kicker_match = re.search(fr'^({player_pattern})\s+', detail_text, re.IGNORECASE)
+        if kicker_match:
+            play_info['Primary_Player'] = kicker_match.group(1).strip().title()
+    
+        if 'good' in detail_text:
+         play_info['Result'] = 'Kick Good'
+        else:
+            play_info['Result'] = 'Missed Kick'
+
+    # Override result for touchdowns and fumbles
+    if 'touchdown' in detail_text:
+        play_info['Result'] = 'Touchdown'
+    elif 'fumble' in detail_text and not play_info['Result']:
+        play_info['Result'] = 'Fumble'
+
+    print(f"Parsed play info: {play_info}")
+    return play_info
+
+def make_request_with_retry(url, headers, max_retries=5, base_delay=10):
+    """Make HTTP request with exponential backoff retry logic and session handling"""
+    session = requests.Session()  # Create a session to maintain cookies
+    
+    # Set up more realistic headers
+    default_headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Cache-Control': 'max-age=0',
+    }
+    
+    for attempt in range(max_retries):
+        try:
+            # Calculate exponential backoff delay with some randomization
+            delay = base_delay * (2 ** attempt) + random.uniform(1, 5)
+            if attempt > 0:
+                print(f"Waiting {delay:.1f} seconds before retry...")
+                time.sleep(delay)
+            
+            response = session.get(url, headers=default_headers, timeout=30)
+            response.raise_for_status()
+            
+            # Add delay between successful requests
+            time.sleep(base_delay + random.uniform(1, 5))
+            
+            return response
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Error occurred: {str(e)}")
+            if attempt == max_retries - 1:
+                print(f"Failed to fetch {url} after {max_retries} attempts")
+                raise
+            print(f"Retrying... (Attempt {attempt + 1} of {max_retries})")
+
+def scrape_nfl_data(season, week):
+    week_url = f"{base_url}/years/{season}/week_{week}.htm"
+    week_path = os.path.join(save_path, str(season), f"Week_{week}")
+    os.makedirs(week_path, exist_ok=True)
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    
+    try:
+        print(f"Starting scrape for Week {week}...")
+        time.sleep(3)
+
+        response = make_request_with_retry(week_url, headers)
+        main_page_soup = BeautifulSoup(response.text, 'html.parser')
+    except Exception as e:
+        print(f"Failed to fetch week data for Season {season}, Week {week}: {str(e)}")
+        return
+    
+    # Initialize storage for game drive details
+    all_drive_details = []
+    
+    games = main_page_soup.find_all('div', class_='game_summary')
+    if not games:
+        print(f"No games found for Season {season}, Week {week}")
+        return
+    
+    for game in games:
+        team_rows = game.find_all('tr', class_=['winner', 'loser'])
+        if len(team_rows) < 2:
+            continue
+            
+        away_team = team_rows[0].find('td').text.strip()
+        home_team = team_rows[1].find('td').text.strip()
+        
+        # Get the actual date from the game summary
+        date_row = game.find('tr', class_='date')
+        game_date = None
+        if date_row:
+            date_cell = date_row.find('td')
+            if date_cell:
+                game_date = date_cell.text.strip()
+        
+        if not game_date:
+            print(f"Warning: Could not find date for {away_team} vs {home_team}")
+            continue
+            
+        boxscore_link = game.find('td', class_='right gamelink').find('a', href=lambda x: x and '/boxscores/' in x)
+        
+        if not boxscore_link:
+            print(f"No boxscore link found for {away_team} vs {home_team}")
+            continue
+            
+        full_boxscore_url = base_url + boxscore_link['href']
+        print(f"Found boxscore link for {away_team} vs {home_team}: {full_boxscore_url}")
+        
+        try:
+            box_score_response = make_request_with_retry(full_boxscore_url, headers)
+            box_score_soup = BeautifulSoup(box_score_response.text, 'html.parser')
+            
+            # Get drive details with game information included
+            play_details = scrape_game_details(game, box_score_soup, game_date, season, week, away_team, home_team)
+            
+            if not play_details.empty:
+                # Convert the play details into a list of dictionaries
+                play_list = play_details.to_dict('records')
+                # Process each play individually
+                for play in play_list:
+                    # Parse the play details again to ensure we capture all information
+                    parsed_details = parse_play_details(play['Detail'])
+                    # Update the play dictionary with parsed information
+                    play.update(parsed_details)
+                    all_drive_details.append(play)
+                print(f"Successfully added drive details for {away_team} vs {home_team}")
+            else:
+                print(f"No drive details found for {away_team} vs {home_team}")
+            
+            time.sleep(5)  # Delay between games
+            
+        except Exception as e:
+            print(f"Error processing box score for {away_team} vs {home_team}: {str(e)}")
+            traceback.print_exc()
+            continue
+    
+    # Save all collected drive details
+    if all_drive_details:
+        try:
+            # Create DataFrame from the collected details
+            combined_df = pd.DataFrame(all_drive_details)
+            
+            # Define column order
+            columns_order = [
+                'Date', 'Season', 'Week', 'Away Team', 'Home Team', 'Game_Time',
+                'Quarter', 'Time', 'Down', 'ToGo', 'Location', 'Detail',
+                'Play_Type', 'Primary_Player', 'Receiver', 'Sack_By',  # Updated
+                'Run_Location', 'Run_Gap', 'Pass_Type', 'Pass_Location', 
+                'Pass_Yards', 'Yards', 'Tackler', 'Result',
+                'Penalized_Player', 'Penalty_Yards',
+                'EPB', 'EPA'
+                ]
+            
+            # Ensure all columns exist
+            for col in columns_order:
+                if col not in combined_df.columns:
+                    combined_df[col] = None
+            
+            # Reorder columns
+            combined_df = combined_df[columns_order]
+            
+            # Clean up any list-type columns (like Tackler)
+            if 'Tackler' in combined_df.columns:
+                combined_df['Tackler'] = combined_df['Tackler'].apply(
+                    lambda x: ', '.join(x) if isinstance(x, list) else x
+                )
+            
+            # Save to Excel
+            file_path = os.path.join(week_path, f"{season}_Week{week}_Drive_Details.xlsx")
+            combined_df.to_excel(file_path, index=False)
+            
+            print(f"\nSuccessfully saved {len(combined_df)} plays to {file_path}")
+            print(f"DataFrame shape: {combined_df.shape}")
+            
+            # Print sample and column info
+            print("\nColumns in DataFrame:")
+            for col in combined_df.columns:
+                non_null = combined_df[col].count()
+                total = len(combined_df)
+                print(f"{col}: {non_null}/{total} non-null values")
+            
+            print("\nSample of collected data:")
+            print(combined_df.head())
+            
+        except Exception as e:
+            print(f"Error saving drive details: {e}")
+            traceback.print_exc()
+    else:
+        print("\nNo drive details collected for any games")
+
+# Additional helper function to clean the parsed data
+def clean_parsed_data(df):
+    """Clean and standardize the parsed data"""
+    # Convert Tackler from list to string if necessary
+    if 'Tackler' in df.columns:
+        df['Tackler'] = df['Tackler'].apply(
+            lambda x: ', '.join(x) if isinstance(x, list) else x
+        )
+    
+    # Ensure numeric columns are properly typed
+    numeric_columns = ['Yards', 'Pass_Yards', 'Penalty_Yards', 'EPB', 'EPA']
+    for col in numeric_columns:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    return df
+def main():
+    seasons = [2023]  # Modify as needed
+    weeks = list(range(2, 3))  # Scrape all regular season weeks
+    
+    for season in seasons:
+        for week in weeks:
+            print(f"\nScraping data for Season {season}, Week {week}")
+            scrape_nfl_data(season, week)
+            time.sleep(5)  # Add delay between weeks
+
+if __name__ == "__main__":
+    main()

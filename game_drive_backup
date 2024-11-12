@@ -296,6 +296,8 @@ def parse_play_details(detail_text):
         'Pass_Yards': None,
         'Yards': None,
         'Tackler': None,
+        'Tackler2': None,
+        'Defender': None,
         'Result': None,
         'Penalized_Player': None,
         'Penalty_Yards': None,
@@ -317,7 +319,8 @@ def parse_play_details(detail_text):
         r'(\-?\d+) yard (gain|loss)',
         r'loses (\-?\d+) yards?',
         r'gains (\d+) yards?',
-        r'punts (\d+) yards'
+        r'punts (\d+) yards',
+        r'\s+(\d+)\s+yard\s+field\s+goal'
     ]
     for pattern in yards_patterns:
         yards_match = re.search(pattern, detail_text)
@@ -326,8 +329,67 @@ def parse_play_details(detail_text):
             play_info['Yards'] = yards
             break
 
-    # First determine the play type
-    if 'penalty' in detail_text:
+    # Handles Two Points
+    if 'two point attempt:' in detail_text:
+        play_info['Play_Type'] = 'Two Point'
+
+        # Extract primary player
+        qb_match = re.search(r'two point attempt:\s+([A-Z][a-zA-Z\'\.-]+(?:\s+[A-Z][a-zA-Z\'\.-]+)*?)(?=\s+(?:pass|left|right|runs|rushed|up|rushes))', detail_text, re.IGNORECASE)
+        if qb_match:
+            play_info['Primary_Player'] = qb_match.group(1).strip().title()
+
+        # Handle pass attempts
+        if 'pass' in detail_text:
+            receiver_match = re.search(fr'(?:complete to|incomplete intended for)\s+({player_pattern})', detail_text, re.IGNORECASE)
+            if receiver_match:
+                play_info['Receiver'] = receiver_match.group(1).strip().title()
+
+            # Set pass location
+            if ' left' in detail_text:
+                play_info['Pass_Location'] = 'Left'
+            elif ' right' in detail_text:
+                play_info['Pass_Location'] = 'Right'
+            elif ' middle' in detail_text:
+                play_info['Pass_Location'] = 'Middle'
+
+            # Set result
+            if 'complete' in detail_text and 'conversion succeeds' in detail_text:
+                play_info['Result'] = 'Two Point Converted'
+            elif 'incomplete' in detail_text or 'conversion fails' in detail_text:
+                play_info['Result'] = 'Two Point Failed'
+
+        # Handle run attempts
+        else:
+            location_patterns = [
+                (r'left end', ('Left', 'End')),
+                (r'right end', ('Right', 'End')),
+                (r'left tackle', ('Left', 'Tackle')),
+                (r'right tackle', ('Right', 'Tackle')),
+                (r'left guard', ('Left', 'Guard')),
+                (r'right guard', ('Right', 'Guard')),
+                (r'up the middle', ('Middle', 'Middle')),
+                (r' middle', ('Middle', 'Middle')),
+                (r' left(?!\w)', ('Left', None)),
+                (r' right(?!\w)', ('Right', None))
+            ]
+
+            for pattern, (location, gap) in location_patterns:
+                if re.search(pattern, detail_text):
+                    play_info['Run_Location'] = location
+                    if gap:
+                        play_info['Run_Gap'] = gap
+                    break
+
+            # Set result
+            if 'conversion succeeds' in detail_text:
+                play_info['Result'] = 'Two Point Converted'
+            elif 'conversion fails' in detail_text:
+                play_info['Result'] = 'Two Point Failed'
+
+            return play_info
+        
+    # Handles Penalty Plays
+    elif 'penalty' in detail_text:
         play_info['Play_Type'] = 'Penalty'
         penalty_match = re.search(fr'penalty on\s+({player_pattern})', detail_text, re.IGNORECASE)
         if penalty_match:
@@ -335,27 +397,65 @@ def parse_play_details(detail_text):
         penalty_yards = re.search(r'(\d+) yards', detail_text)
         if penalty_yards:
             play_info['Penalty_Yards'] = int(penalty_yards.group(1))
-        return play_info
 
-    # Check for run plays first
+        # Sets the Penalty Results
+        if 'accepted' in detail_text:
+            play_info['Result'] = 'Penalty Accepted'
+        elif 'declined' in detail_text:
+            play_info['Result'] = 'Penalty Declined'
+            return play_info
+        
+    #Handles Aborted snaps
+    elif 'aborted' in detail_text:
+        play_info['Play_Type'] = 'Aborted'
+
+        # Handles Primary Player
+        name_text = detail_text.split('aborted snap')[0].strip()
+        if name_text:
+            play_info['Primary_Player'] = name_text.title()
+
+        # Handle yards
+        if 'no gain' in detail_text:
+            play_info['Yards'] = 0
+        else:
+            yards_match = re.search(r'for\s+(-?\d+)\s+yards?', detail_text)
+            if yards_match:
+                play_info['Yards'] = int(yards_match.group(1))
+
+        # Handles Results
+        if 'recovered' in detail_text:
+            play_info['Result'] = 'Recovered'
+        else:
+            play_info['Result'] ='Aborted'
+        
+
+    # Handles Run Plays
     elif any(x in detail_text for x in [
         'left tackle for', 'right tackle for', 'left guard for', 'right guard for', 
         'left end for', 'right end for', 'up the middle for', 'runs for', 'rushed for',
-        ' middle run', ' left run', ' right run'
+        ' middle run', ' left run', ' right run', 'middle for', 'scrambles'
     ]):
         play_info['Play_Type'] = 'Run'
         
-        # Extract runner
-        runner_patterns = [
-            fr'^({player_pattern})\s+(?:left|right|up the middle|runs|rushed)',
-            fr'^({player_pattern})\s+(?:tackle|guard|end)',
-            fr'^({player_pattern})\s+middle'
-        ]
-        for pattern in runner_patterns:
-            runner_match = re.search(pattern, detail_text, re.IGNORECASE)
-            if runner_match:
-                play_info['Primary_Player'] = runner_match.group(1).strip().title()
-                break
+        # Check for scrambles first
+        if 'scrambles' in detail_text:
+            # Get everything before 'scrambles' and clean it
+            name_text = detail_text.split('scrambles')[0].strip()
+            if name_text:  # Make sure we have text
+                play_info['Primary_Player'] = name_text.title()
+        else:
+            # Handle other run plays with existing patterns
+            runner_patterns = [
+                fr'^({player_pattern})\s+(?:left|right|up the middle|runs|rushed)',
+                fr'^({player_pattern})\s+(?:tackle|guard|end)',
+                fr'^({player_pattern})\s+middle',
+                fr'^({player_pattern})\s+middle for'
+            ]
+            for pattern in runner_patterns:
+                runner_match = re.search(pattern, detail_text, re.IGNORECASE)
+                if runner_match:
+                    play_info['Primary_Player'] = runner_match.group(1).strip().title()
+                    break
 
         # Run location and gap
         location_patterns = [
@@ -368,7 +468,8 @@ def parse_play_details(detail_text):
             (r'up the middle', ('Middle', 'Middle')),
             (r' middle', ('Middle', 'Middle')),
             (r' left(?!\w)', ('Left', None)),
-            (r' right(?!\w)', ('Right', None))
+            (r' right(?!\w)', ('Right', None)),
+            (r'middle for', ('Middle', 'Middle')),
         ]
         for pattern, (location, gap) in location_patterns:
             if re.search(pattern, detail_text):
@@ -377,39 +478,24 @@ def parse_play_details(detail_text):
                 break
 
         # Set run result based on yards
-        if play_info['Yards'] is not None:
+        if 'no gain' in detail_text:
+            play_info['Yards'] = 0
+            play_info['Result'] = 'No Gain'
+        # Then check yards for other cases
+        elif play_info['Yards'] is not None:
             if play_info['Yards'] > 0:
                 play_info['Result'] = 'Gain'
             elif play_info['Yards'] < 0:
                 play_info['Result'] = 'Loss'
-            else:
-                play_info['Result'] = 'No Gain'
-
-    # Handle scrambles (which are also runs)
-    elif 'scrambles' in detail_text:
-        play_info['Play_Type'] = 'Run'
-        scrambler_match = re.search(fr'^({player_pattern})\s+scrambles', detail_text, re.IGNORECASE)
-        if scrambler_match:
-            play_info['Primary_Player'] = scrambler_match.group(1).strip().title()
-
-        if ' left' in detail_text:
-            play_info['Run_Location'] = 'Left'
-        elif ' right' in detail_text:
-            play_info['Run_Location'] = 'Right'
-        elif ' middle' in detail_text:
-            play_info['Run_Location'] = 'Middle'
-
-        if play_info['Yards'] is not None:
-            if play_info['Yards'] > 0:
-                play_info['Result'] = 'Gain'
-            elif play_info['Yards'] < 0:
-                play_info['Result'] = 'Loss'
-            else:
-                play_info['Result'] = 'No Gain'
 
     # Handle passes
-    elif 'pass complete' in detail_text or 'pass incomplete' in detail_text or 'sacked' in detail_text or (
-    'pass' in detail_text and any(x in detail_text for x in ['to', 'intended for'])): 
+    elif ('Two Point Attempt:' not in detail_text and 
+      ('pass complete' in detail_text or 
+       'pass incomplete' in detail_text or 
+       'sacked' in detail_text or 
+       ('pass' in detail_text and any(x in detail_text for x in ['to', 'intended for']))
+      )
+    ):
         play_info['Play_Type'] = 'Pass'
         
         # Extract quarterback
@@ -472,6 +558,7 @@ def parse_play_details(detail_text):
         punter_match = re.search(fr'^({player_pattern})\s+punts', detail_text, re.IGNORECASE)
         if punter_match:
             play_info['Primary_Player'] = punter_match.group(1).strip().title()
+            play_info['Result'] = 'Punt'
         
         returner_match = re.search(fr'returned by\s+({player_pattern}?)\s*(?=(?:\s+for|\s+is|\s+\(|$|\.))', detail_text, re.IGNORECASE)
         if returner_match:
@@ -483,36 +570,57 @@ def parse_play_details(detail_text):
         kicker_match = re.search(fr'^({player_pattern})\s+kicks', detail_text, re.IGNORECASE)
         if kicker_match:
             play_info['Primary_Player'] = kicker_match.group(1).strip().title()
+            play_info['Result'] = 'Kick Off'
 
-    # Extract tacklers for any play type
-    tackler_match = re.search(fr'tackle by\s+({player_pattern}(?:\s+and\s+{player_pattern})?)', detail_text, re.IGNORECASE)
-    if tackler_match:
-        tacklers = [name.strip().title() for name in tackler_match.group(1).split(' and ')]
-        play_info['Tackler'] = tacklers
+     # Extract tacklers
+    tackle_match = re.search(r'tackle by\s+([^)]+)', detail_text)
+    if tackle_match:
+        tacklers = tackle_match.group(1).strip().split(' and ')
+        play_info['Tackler'] = tacklers[0].strip().title()
+        if len(tacklers) > 1:
+            play_info['Tackler2'] = tacklers[1].strip().title()
+
+    # Handles Defenders
+    defender_match = re.search(r'defended by\s+([A-Z][a-zA-Z\'\.-]*(?:\s+[A-Z][a-zA-Z\'\.-]+)*)', detail_text, re.IGNORECASE)
+    if defender_match:
+        play_info['Defender'] = defender_match.group(1).strip().title()
 
 
     # Handles Extra Points
     elif 'kicks extra point' in detail_text:
-        play_info['Play_Type'] = 'Extra Point'  # Fixed == to =
+        play_info['Play_Type'] = 'Extra Point'  
         kicker_match = re.search(fr'^({player_pattern})\s+kicks', detail_text, re.IGNORECASE)
         if kicker_match:
             play_info['Primary_Player'] = kicker_match.group(1).strip().title() 
-        if 'good' in detail_text:
+        if 'no' in detail_text or 'block' in detail_text:
+            play_info['Result'] = 'Missed Kicked'
+        elif 'extra point good' in detail_text or 'good' in detail_text:
             play_info['Result'] = 'Kick Good'
-        else:
-            play_info['Result'] = 'Missed Kick'
 
     # Handles Field Goals
-    elif 'field goal' in detail_text:   # Changed if to elif
-        play_info['Play_Type'] = 'Field Goal'  # Fixed == to =
+    elif 'field goal' in detail_text:   
+        play_info['Play_Type'] = 'Field Goal'  
         kicker_match = re.search(fr'^({player_pattern})\s+', detail_text, re.IGNORECASE)
         if kicker_match:
             play_info['Primary_Player'] = kicker_match.group(1).strip().title()
-    
-        if 'good' in detail_text:
-         play_info['Result'] = 'Kick Good'
-        else:
-            play_info['Result'] = 'Missed Kick'
+        if 'no' in detail_text or 'block' in detail_text:
+            play_info['Result'] = 'Missed Kicked'
+        elif 'field goal good' in detail_text or 'good' in detail_text:
+            play_info['Result'] = 'Kick Good'
+
+    # Handles Kneels and other Play Types
+    elif 'kneels' in detail_text or 'kneel' in detail_text:
+            play_info['Play_Type'] = 'Other'
+            
+            # Extract primary player for kneel plays
+            kneel_match = re.search(r'^([A-Z][a-zA-Z\'\.-]+(?:\s+[A-Z][a-zA-Z\'\.-]+)*?)(?=\s+(?:kneels|kneel))', detail_text, re.IGNORECASE)
+            if kneel_match:
+                play_info['Primary_Player'] = kneel_match.group(1).strip().title()
+                
+            # Set result as Kneel
+            play_info['Result'] = 'Kneel'
+            
+            return play_info
 
     # Override result for touchdowns and fumbles
     if 'touchdown' in detail_text:
@@ -658,7 +766,7 @@ def scrape_nfl_data(season, week):
                 'Quarter', 'Time', 'Down', 'ToGo', 'Location', 'Detail',
                 'Play_Type', 'Primary_Player', 'Receiver', 'Sack_By',  # Updated
                 'Run_Location', 'Run_Gap', 'Pass_Type', 'Pass_Location', 
-                'Pass_Yards', 'Yards', 'Tackler', 'Result',
+                'Pass_Yards', 'Yards', 'Tackler', 'Tackler2', 'Defender', 'Result',
                 'Penalized_Player', 'Penalty_Yards',
                 'EPB', 'EPA'
                 ]
@@ -718,7 +826,7 @@ def clean_parsed_data(df):
     return df
 def main():
     seasons = [2023]  # Modify as needed
-    weeks = list(range(2, 3))  # Scrape all regular season weeks
+    weeks = list(range(1, 2))  # Scrape all regular season weeks
     
     for season in seasons:
         for week in weeks:

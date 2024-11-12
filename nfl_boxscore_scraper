@@ -143,11 +143,10 @@ def scrape_game_summary(main_page_soup, box_score_soup, date_text, season, week,
     if scorebox_meta:
         start_time_div = scorebox_meta.find(string=lambda text: 'Start Time' in text if text else False)
         if start_time_div:
-            # The time is in the next element
             time_text = start_time_div.find_next(string=True)
             if time_text:
-                # Clean the time string by removing ': ' prefix
-                cleaned_time = time_text.strip().replace(': ', '')
+                # Remove the leading colon and any spaces
+                cleaned_time = time_text.lstrip(': ')  # This will remove the leading colon and any spaces
                 game_info['Game_Time'] = cleaned_time
                 print(f"Found game time: {cleaned_time}")
     

@@ -272,8 +272,63 @@ def scrape_box_score(url, season, week, date_text, away_team, home_team, data_st
             'wrapper_id': 'div_kicking',
             'table_id': 'kicking',
             'stats_to_extract': ['player', 'team', 'fgm', 'fga', 'xpm', 'xpa']
+        },
+        'Player_Offense': { 
+            'wrapper_id': 'div_player_offense',
+            'table_id': 'player_offense',
+            'stats_to_extract': ['player', 'team', 'pass_cmp', 'pass_att', 'pass_yds', 'pass_td', 'rush_att', 'rush_yds', 'rush_td']
+        },
+        'Player_Defense': {
+        'wrapper_id': 'div_player_defense',
+        'table_id': 'player_defense',
+        'stats_to_extract': ['player', 'team', 'def_int', 'def_int_yds', 'def_int_td', 'def_int_long',
+                            'pass_defended', 'sacks', 'tackles_combined', 'tackles_solo', 
+                            'tackles_assists', 'qb_hits', 'fumbles_forced', 'fumbles_rec']
+    
         }
     }
+
+    if 'Player_Offense' not in data_storage:
+        data_storage['Player_Offense'] = []
+
+    def process_player_offense(table):
+        """Process player offense table"""
+        data_rows = []
+        tbody = table.find('tbody')
+        
+        if tbody:
+            for row in tbody.find_all('tr', class_=lambda x: x != 'thead'):
+                row_data = {}
+                
+                player_cell = row.find('th', {'data-stat': 'player'})
+                if player_cell:
+                    row_data['player'] = player_cell.text.strip()
+                    
+                for cell in row.find_all('td'):
+                    stat = cell.get('data-stat', '')
+                    if stat:
+                        row_data[stat] = cell.text.strip()
+                
+                if row_data:
+                    data_rows.append(row_data)
+        
+        return data_rows
+
+    # Add processing for Player_Offense section
+    div = soup.find('div', id='all_player_offense')
+    if div:
+        table = find_commented_table(div, 'player_offense')
+        if table:
+            data_rows = process_player_offense(table)
+            if data_rows:
+                stats_df = pd.DataFrame(data_rows)
+                stats_df['Date'] = date_text
+                stats_df['Season'] = season
+                stats_df['Week'] = week
+                stats_df['Away Team'] = away_team
+                stats_df['Home Team'] = home_team
+                data_storage['Player_Offense'].append(stats_df)
+                print("Successfully scraped Player Offense data")
 
     # Define header texts to exclude
     header_texts = {'Kick Returns', 'Punt Returns', 'Scoring', 'Punting'}
@@ -448,7 +503,9 @@ def scrape_nfl_data(season, week):
         'Receiving': [],
         'Defense': [],
         'Returns': [],
-        'Kicking': []
+        'Kicking': [],
+        'Player_Offense': [],
+        'Player_Defense': []
     }
     
     games = main_page_soup.find_all('div', class_='game_summary')
@@ -523,8 +580,8 @@ def scrape_nfl_data(season, week):
             traceback.print_exc()
 
 def main():
-    seasons = [2023]  # Modify as needed
-    weeks = list(range(1, 2))  # Scrape all regular season weeks
+    seasons = [2024]  # Modify as needed
+    weeks = list(range(12,13))  # Scrape all regular season weeks
     
     for season in seasons:
         for week in weeks:

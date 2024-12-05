@@ -766,7 +766,7 @@ def scrape_nfl_data(season, week):
                 box_score_response = make_request_with_retry(full_boxscore_url, {})
                 box_score_soup = BeautifulSoup(box_score_response.text, 'lxml')
                 
-                team_rows = game.find_all('tr', class_=['winner', 'loser'])
+                team_rows = game.find_all('tr', class_=['winner', 'loser','draw'])
                 if len(team_rows) < 2:
                     print(f"Invalid team data for game {game_index + 1}")
                     continue
@@ -867,8 +867,8 @@ def clean_parsed_data(df):
     
     return df
 def main():
-    seasons = [2024]  # Modify as needed
-    weeks = list(range(12, 13))  # Scrape all regular season weeks
+    seasons = [2008]  # Modify as needed
+    weeks = list(range(11,12))  # Scrape all regular season weeks
     
     for season in seasons:
         for week in weeks:

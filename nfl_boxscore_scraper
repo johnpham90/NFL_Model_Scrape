@@ -154,6 +154,9 @@ def scrape_game_summary(main_page_soup, box_score_soup, date_text, season, week,
     # Get scores from main page
     loser_row = main_page_soup.find('tr', class_='loser')
     winner_row = main_page_soup.find('tr', class_='winner')
+    draw_rows = main_page_soup.find_all('tr', class_='draw')
+    print(f"\nChecking for draw game between {away_team} and {home_team}")
+    print(f"Number of draw rows found: {len(draw_rows)}")
     
     if loser_row and winner_row:
         loser_score_cell = loser_row.find('td', class_='right')
@@ -172,6 +175,15 @@ def scrape_game_summary(main_page_soup, box_score_soup, date_text, season, week,
             else:
                 game_info['Away Score'] = winner_score
                 game_info['Home Score'] = loser_score
+
+    elif draw_rows and len(draw_rows) == 2:
+        # Get scores from the draw rows
+        away_score = draw_rows[0].find('td', class_='right').text.strip()
+        home_score = draw_rows[1].find('td', class_='right').text.strip()
+        print(f"Draw game scores - Away: {away_score}, Home: {home_score}")
+        
+        game_info['Away Score'] = int(away_score) if away_score.isdigit() else None
+        game_info['Home Score'] = int(home_score) if home_score.isdigit() else None
 
     # Look for game info in comments
     div = box_score_soup.find('div', id='all_game_info')
@@ -514,7 +526,7 @@ def scrape_nfl_data(season, week):
         return
     
     for game in games:
-        team_rows = game.find_all('tr', class_=['winner', 'loser'])
+        team_rows = game.find_all('tr', class_=['winner', 'loser', 'draw'])
         if len(team_rows) < 2:
             continue
             
@@ -580,8 +592,8 @@ def scrape_nfl_data(season, week):
             traceback.print_exc()
 
 def main():
-    seasons = [2024]  # Modify as needed
-    weeks = list(range(12,13))  # Scrape all regular season weeks
+    seasons = [2008]  # Modify as needed
+    weeks = list(range(11, 12))  # Scrape all regular season weeks
     
     for season in seasons:
         for week in weeks:

@@ -592,8 +592,8 @@ def scrape_nfl_data(season, week):
             traceback.print_exc()
 
 def main():
-    seasons = [2008]  # Modify as needed
-    weeks = list(range(11, 12))  # Scrape all regular season weeks
+    seasons = [2024]  # Modify as needed
+    weeks = list(range(14, 15))  # Scrape all regular season weeks
     
     for season in seasons:
         for week in weeks:

@@ -121,6 +121,14 @@ def process_game_summary(game):
     return away_team, home_team, game_date, boxscore_url, game_time
 
 def scrape_expected_points_summary(season, week):
+    """
+    Scrape Expected Points Summary for a given season and week.
+    Adds a delay between scraping each game to avoid rate limiting.
+
+    Args:
+    - season (int): The season year.
+    - week (int): The week number.
+    """
     week_url = f"{base_url}/years/{season}/week_{week}.htm"
     save_dir = os.path.join(save_path, str(season), f"Week_{week}")
     os.makedirs(save_dir, exist_ok=True)
@@ -162,6 +170,9 @@ def scrape_expected_points_summary(season, week):
         except Exception as e:
             print(f"Error processing {boxscore_url}: {e}")
 
+        # Add a delay between games to avoid rate limiting
+        time.sleep(3)
+
     if all_data:
         df = pd.DataFrame(all_data)
         if "team_name" in df.columns:  # Replace with the actual column name
@@ -170,10 +181,11 @@ def scrape_expected_points_summary(season, week):
         df.to_excel(file_path, index=False)
         print(f"Saved Expected Points Summary to {file_path}")
 
+
 def main():
     seasons = [2023]  # List of seasons to scrape
     for season in seasons:
-        weeks = list(range(1, 23))  # Range of weeks to scrape
+        weeks = list(range(1, 13))  # Range of weeks to scrape
         for week in weeks:
             print(f"\nScraping Season {season}, Week {week} Expected Points Summary")
             scrape_expected_points_summary(season, week)

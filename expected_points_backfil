@@ -38,7 +38,7 @@ TEAM_MAPPING = {
     "Ravens": "BAL",
     "Texans": "HOU",
     "Broncos": "DEN",
-    "Football Team": "WAS",
+    "Commanders": "WAS",
     "Patriots": "NWE"
 
 }
@@ -233,13 +233,13 @@ def scrape_expected_points_summary(season, week):
 
 
 def main():
-    seasons = [2021]  # List of seasons to scrape
+    seasons = [2024]  # List of seasons to scrape
     for season in seasons:
-        weeks = list(range(1, 23))  # Range of weeks to scrape
+        weeks = list(range(1, 16))  # Range of weeks to scrape
         for week in weeks:
             print(f"\nScraping Season {season}, Week {week} Expected Points Summary")
             scrape_expected_points_summary(season, week)
-            time.sleep(2)
+            time.sleep(1)
 
 if __name__ == "__main__":
     main()

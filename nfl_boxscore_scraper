@@ -4,6 +4,10 @@ import pandas as pd
 from bs4 import BeautifulSoup
 from bs4.element import Comment
 import time
+from datetime import datetime, timedelta
+from time import sleep
+from collections.abc import Iterable 
+from current_week import get_current_nfl_week
 
 # Base URL and save path
 base_url = "https://www.pro-football-reference.com"
@@ -590,11 +594,36 @@ def scrape_nfl_data(season, week):
             print(f"Error saving {stat_type} stats: {e}")
             import traceback
             traceback.print_exc()
+def ensure_iterable(value):
+    """
+    Ensures the input value is iterable. If not, wraps it in a list.
+    Args:
+        value: The input value to check.
+    Returns:
+        An iterable (list or range).
+    """
+    if isinstance(value, Iterable) and not isinstance(value, str):
+        return value
+    return [value]  
 
 def main():
-    seasons = [2024]  # Modify as needed
-    weeks = list(range(15, 16))  # Scrape all regular season weeks
-    
+    # Define Week 1 start date
+    week1_start_date = '2024-09-05'
+
+    # Define seasons (single or multiple years)
+    seasons = 2024  # Single season or range of seasons
+    seasons = ensure_iterable(seasons)
+
+    # Get the current NFL week
+    current_week = get_current_nfl_week(week1_start_date)
+    print(f"Current NFL Week: {current_week}")
+
+    # Define weeks (single week or range of weeks)
+    weeks = current_week  # Set to current week
+    #weeks = list(range(19,20))
+    weeks = ensure_iterable(weeks)  # Ensure weeks is iterable
+
+    # Loop through seasons and weeks
     for season in seasons:
         for week in weeks:
             print(f"\nScraping data for Season {season}, Week {week}")

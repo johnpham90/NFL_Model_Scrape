@@ -235,7 +235,7 @@ def scrape_expected_points_summary(season, week):
 def main():
     seasons = [2024]  # List of seasons to scrape
     for season in seasons:
-        weeks = list(range(1, 16))  # Range of weeks to scrape
+        weeks = list(range(19, 20))  # Range of weeks to scrape
         for week in weeks:
             print(f"\nScraping Season {season}, Week {week} Expected Points Summary")
             scrape_expected_points_summary(season, week)

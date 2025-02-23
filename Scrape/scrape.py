@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timedelta
 from time import sleep
 from collections.abc import Iterable 
-from current_week import get_current_nfl_week
+#from Utilis.current_week import get_current_nfl_week
 
 # Base URL and save path
 base_url = "https://www.pro-football-reference.com"
@@ -615,13 +615,13 @@ def main():
     seasons = ensure_iterable(seasons)
 
     # Get the current NFL week
-    current_week = get_current_nfl_week(week1_start_date)
-    print(f"Current NFL Week: {current_week}")
+    #current_week = get_current_nfl_week(week1_start_date)
+    #print(f"Current NFL Week: {current_week}")
 
     # Define weeks (single week or range of weeks)
-    weeks = current_week  # Set to current week
-    #weeks = list(range(19,20))
-    weeks = ensure_iterable(weeks)  # Ensure weeks is iterable
+    #weeks = current_week  # Set to current week
+    weeks = list(range(21,22))
+    #weeks = ensure_iterable(weeks)  # Ensure weeks is iterable
 
     # Loop through seasons and weeks
     for season in seasons:

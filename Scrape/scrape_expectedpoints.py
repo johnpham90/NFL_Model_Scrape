@@ -43,42 +43,10 @@ TEAM_MAPPING = {
 
 }
 
-# Proxy configuration
-PROXY_CONFIG = {
-    'http': 'http://92.113.81.29:42004',
-    'https': 'http://92.113.81.29:42004'
-}
-
-# Optional: Add proxy authentication if needed
-PROXY_AUTH = {
-    'username': 'tYxdcHIlsPM8L7p',
-    'password': '8QRXXZjylbDY1Xl'
-}
-
-def create_proxy_session():
-    """Create a requests session with proxy configuration"""
-    session = requests.Session()
-    
-    # Create proxy URL with authentication embedded
-    proxy_with_auth = f'http://{PROXY_AUTH["username"]}:{PROXY_AUTH["password"]}@92.113.81.29:42004'
-    session.proxies = {
-        'http': proxy_with_auth,
-        'https': proxy_with_auth
-    }
-    
-    # Add additional headers that some proxies require
-    session.headers.update({
-        'Connection': 'keep-alive',
-        'Proxy-Connection': 'keep-alive'
-    })
-    
-    return session
 
 def make_request_with_retry(url, headers, max_retries=3, timeout=30):
-    """Make HTTP request with retry logic using proxy"""
-    session = create_proxy_session()
-    
-    # Add the user headers to the session
+    """Make HTTP request with retry logic"""
+    session = requests.Session()
     session.headers.update(headers)
     
     for attempt in range(max_retries):
@@ -86,11 +54,6 @@ def make_request_with_retry(url, headers, max_retries=3, timeout=30):
             response = session.get(url, timeout=timeout)
             response.raise_for_status()
             return response
-        except requests.exceptions.ProxyError as e:
-            print(f"Proxy error on attempt {attempt + 1}: {e}")
-            if attempt < max_retries - 1:
-                time.sleep(5 * (attempt + 1))
-            continue
         except requests.exceptions.RequestException as e:
             print(f"Request error on attempt {attempt + 1}: {e}")
             if attempt < max_retries - 1:
@@ -98,6 +61,13 @@ def make_request_with_retry(url, headers, max_retries=3, timeout=30):
             continue
     raise Exception(f"Failed to fetch {url} after {max_retries} retries")
 
+def find_commented_table(div, table_id):
+    """Find a table inside HTML comments"""
+    if not div:
+        print("Div not found or empty")
+        return None
+
+    comments = div.find_all(string=lambda text: isinstance(text, Comment))
 def find_commented_table(div, table_id):
     """Find a table inside HTML comments"""
     if not div:
@@ -235,7 +205,7 @@ def scrape_expected_points_summary(season, week):
 def main():
     seasons = [2024]  # List of seasons to scrape
     for season in seasons:
-        weeks = list(range(19, 20))  # Range of weeks to scrape
+        weeks = list(range(20, 21))  # Range of weeks to scrape
         for week in weeks:
             print(f"\nScraping Season {season}, Week {week} Expected Points Summary")
             scrape_expected_points_summary(season, week)

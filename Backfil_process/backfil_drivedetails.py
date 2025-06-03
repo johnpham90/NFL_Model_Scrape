@@ -966,15 +966,56 @@ def clean_parsed_data(df):
             df[col] = pd.to_numeric(df[col], errors='coerce')
     
     return df
+
+def load_seasons_weeks_from_csv(csv_file_path):
+    """Load unique season/week combinations from CSV file"""
+    try:
+        df = pd.read_csv(csv_file_path)
+        
+        # Get unique season/week combinations
+        unique_weeks = df[['season', 'week']].drop_duplicates()
+        
+        # Convert to list of tuples and sort
+        season_week_pairs = [(int(row['season']), int(row['week'])) 
+                           for _, row in unique_weeks.iterrows()]
+        season_week_pairs.sort()
+        
+        print(f"Loaded {len(season_week_pairs)} unique season/week combinations from CSV")
+        print(f"Season range: {season_week_pairs[0][0]} to {season_week_pairs[-1][0]}")
+        
+        return season_week_pairs
+        
+    except Exception as e:
+        print(f"Error loading CSV file: {e}")
+        raise
+
 def main():
-    seasons = [2012]  # Modify as needed
-    weeks = list(range(19,20))  # Scrape all regular season weeks
+    # Option 1: Use CSV file
+    csv_file_path = "C:/NFLStats/Backfil/DriveDetailBackfil/Book2.csv"
+    season_week_pairs = load_seasons_weeks_from_csv(csv_file_path)
     
-    for season in seasons:
-        for week in weeks:
-            print(f"\nScraping data for Season {season}, Week {week}")
+    # Option 2: Use manual lists (comment out Option 1 and uncomment these)
+    # seasons = [2012]  # Modify as needed
+    # weeks = list(range(19,20))  # Scrape all regular season weeks
+    # season_week_pairs = [(season, week) for season in seasons for week in weeks]
+    
+    print(f"Processing {len(season_week_pairs)} season/week combinations...")
+    
+    for i, (season, week) in enumerate(season_week_pairs, 1):
+        try:
+            print(f"\n[{i}/{len(season_week_pairs)}] Scraping Season {season}, Week {week}")
             scrape_nfl_data(season, week)
-            time.sleep(5)  # Add delay between weeks
+            print(f"✓ Successfully completed {season} Week {week}")
+            
+            # Add delay between weeks to be respectful to the server
+            if i < len(season_week_pairs):  # Don't delay after the last one
+                time.sleep(5)
+                
+        except Exception as e:
+            print(f"✗ Failed to scrape Season {season}, Week {week}: {str(e)}")
+            traceback.print_exc()
+            # Continue with next season/week instead of stopping
+            continue
 
 if __name__ == "__main__":
     main()

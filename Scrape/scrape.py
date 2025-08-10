@@ -13,6 +13,18 @@ from collections.abc import Iterable
 base_url = "https://www.pro-football-reference.com"
 save_path = "C:\\NFLStats\\data"
 
+# Team mapping for Expected Points
+TEAM_MAPPING = {
+    "Lions": "DET", "Packers": "GNB", "Dolphins": "MIA", "Jets": "NYJ",
+    "Falcons": "ATL", "Vikings": "MIN", "Saints": "NOR", "Giants": "NYG",
+    "Jaguars": "JAX", "Titans": "TEN", "Panthers": "CAR", "Eagles": "PHI",
+    "Browns": "CLE", "Steelers": "PIT", "Raiders": "LVR", "Buccaneers": "TAM",
+    "Cardinals": "ARI", "Seahawks": "SEA", "Bills": "BUF", "Rams": "LAR",
+    "Bears": "CHI", "49ers": "SFO", "Chiefs": "KAN", "Chargers": "LAC",
+    "Bengals": "CIN", "Cowboys": "DAL", "Colts": "IND", "Ravens": "BAL",
+    "Texans": "HOU", "Broncos": "DEN", "Commanders": "WAS", "Patriots": "NWE"
+}
+
 def make_request_with_retry(url, headers, max_retries=3, timeout=30):
     """Make HTTP request with retry logic"""
     for attempt in range(max_retries):
@@ -46,12 +58,38 @@ def find_commented_table(div, table_id):
     # Then look in comments
     comments = div.find_all(string=lambda text: isinstance(text, Comment))
     for comment in comments:
-        comment_soup = BeautifulSoup(comment, 'html.parser')
-        table = comment_soup.find('table', {'id': table_id})
-        if table:
-            return table
+        try:
+            comment_soup = BeautifulSoup(comment, 'lxml')
+            table = comment_soup.find('table', {'id': table_id})
+            if table:
+                return table
+        except Exception as e:
+            print(f"Error parsing comment: {e}")
+            break
     
     return None
+
+def process_expected_points_table(table):
+    """Process the Expected Points Summary table with team mapping"""
+    rows = []
+    if not table:
+        return rows
+
+    tbody = table.find('tbody')
+    if tbody:
+        for row in tbody.find_all('tr'):
+            row_data = {}
+            for cell in row.find_all(['th', 'td']):
+                col_name = cell.get('data-stat', '').strip()
+                if col_name:
+                    value = cell.text.strip()
+                    # Map team names to team IDs
+                    if col_name == "team_name":
+                        value = TEAM_MAPPING.get(value, value)
+                    row_data[col_name] = value
+            if row_data:
+                rows.append(row_data)
+    return rows
 
 def process_drive_stats(table, team, is_home):
     """Process drive stats table for a team"""
@@ -132,7 +170,7 @@ def scrape_game_summary(main_page_soup, box_score_soup, date_text, season, week,
         'Home Team': home_team,
         'Away Score': None,
         'Home Score': None,
-        'Game_Time': None,  # Added game time field
+        'Game_Time': None,
         'Won_Toss': None,
         'Roof': None,
         'Surface': None,
@@ -150,11 +188,10 @@ def scrape_game_summary(main_page_soup, box_score_soup, date_text, season, week,
             time_text = start_time_div.find_next(string=True)
             if time_text:
                 # Remove the leading colon and any spaces
-                cleaned_time = time_text.lstrip(': ')  # This will remove the leading colon and any spaces
+                cleaned_time = time_text.lstrip(': ')
                 game_info['Game_Time'] = cleaned_time
                 print(f"Found game time: {cleaned_time}")
     
-    # Rest of the function remains the same...
     # Get scores from main page
     loser_row = main_page_soup.find('tr', class_='loser')
     winner_row = main_page_soup.find('tr', class_='winner')
@@ -243,6 +280,26 @@ def scrape_box_score(url, season, week, date_text, away_team, home_team, data_st
         print(f"Failed to fetch box score for {away_team} vs {home_team}: {str(e)}")
         return
 
+    # Scrape Expected Points Summary
+    print(f"Scraping Expected Points for {away_team} vs {home_team}")
+    div_expected = soup.find('div', id='all_expected_points')
+    expected_table = find_commented_table(div_expected, 'expected_points')
+    if expected_table:
+        expected_data = process_expected_points_table(expected_table)
+        if expected_data:
+            for row in expected_data:
+                row['Season'] = season
+                row['Week'] = week
+                row['Date'] = date_text
+                row['Away_Team'] = away_team
+                row['Home_Team'] = home_team
+            
+            expected_df = pd.DataFrame(expected_data)
+            if "team_name" in expected_df.columns:
+                expected_df.rename(columns={"team_name": "teamid"}, inplace=True)
+            data_storage['ExpectedPoints'].append(expected_df)
+            print(f"Successfully scraped Expected Points data")
+
     sections = {
         'Team_Stats': {
             'wrapper_id': 'div_team_stats',
@@ -300,7 +357,6 @@ def scrape_box_score(url, season, week, date_text, away_team, home_team, data_st
         'stats_to_extract': ['player', 'team', 'def_int', 'def_int_yds', 'def_int_td', 'def_int_long',
                             'pass_defended', 'sacks', 'tackles_combined', 'tackles_solo', 
                             'tackles_assists', 'qb_hits', 'fumbles_forced', 'fumbles_rec']
-    
         }
     }
 
@@ -392,7 +448,7 @@ def scrape_box_score(url, season, week, date_text, away_team, home_team, data_st
                                 print(f"Successfully scraped {away_team} drives data")
             
             # Process home team drives
-                        home_div = soup.find('div', id='all_home_drives')
+            home_div = soup.find('div', id='all_home_drives')
             if home_div:
                 comments = home_div.find_all(string=lambda text: isinstance(text, Comment))
                 for comment in comments:
@@ -415,7 +471,6 @@ def scrape_box_score(url, season, week, date_text, away_team, home_team, data_st
                 data_storage[stat_type].extend(drives_data)
             
             continue
-
 
         # Process other stats
         div = soup.find('div', id=f"all_{config['table_id']}")
@@ -509,7 +564,7 @@ def scrape_nfl_data(season, week):
         print(f"Failed to fetch week data for Season {season}, Week {week}: {str(e)}")
         return
     
-    # Initialize data storage with all stat types
+    # Initialize data storage with all stat types including Expected Points
     data_storage = {
         'Game_Summary': [],
         'Team_Stats': [],
@@ -521,7 +576,8 @@ def scrape_nfl_data(season, week):
         'Returns': [],
         'Kicking': [],
         'Player_Offense': [],
-        'Player_Defense': []
+        'Player_Defense': [],
+        'ExpectedPoints': []  # Added Expected Points
     }
     
     games = main_page_soup.find_all('div', class_='game_summary')
@@ -566,7 +622,7 @@ def scrape_nfl_data(season, week):
             game_summary_df = scrape_game_summary(game, box_score_soup, game_date, season, week, away_team, home_team)
             data_storage['Game_Summary'].append(game_summary_df)
             
-            # Get all other stats with the correct date
+            # Get all other stats including Expected Points
             scrape_box_score(full_boxscore_url, season, week, game_date, away_team, home_team, data_storage)
             
             print(f"Successfully processed {away_team} vs {home_team}")
@@ -584,7 +640,16 @@ def scrape_nfl_data(season, week):
         try:
             if data_frames:
                 combined_df = pd.concat(data_frames, ignore_index=True)
-                file_path = os.path.join(week_path, f"{season}_Week{week}_{stat_type}_Stats.xlsx")
+                
+                # Handle special naming cases to match your existing files
+                if stat_type == "ExpectedPoints":
+                    file_name = f"{season}_Week{week}_ExpectedPoints.xlsx"
+                elif stat_type == "Drives":
+                    file_name = f"{season}_Week{week}_Drive_Details.xlsx"  # Note: Drive_Details not Drives_Stats
+                else:
+                    file_name = f"{season}_Week{week}_{stat_type}_Stats.xlsx"
+                
+                file_path = os.path.join(week_path, file_name)
                 combined_df.to_excel(file_path, index=False)
                 print(f"Successfully saved {stat_type} stats to {file_path}")
                 print(f"Shape of saved DataFrame: {combined_df.shape}")
@@ -594,6 +659,7 @@ def scrape_nfl_data(season, week):
             print(f"Error saving {stat_type} stats: {e}")
             import traceback
             traceback.print_exc()
+
 def ensure_iterable(value):
     """
     Ensures the input value is iterable. If not, wraps it in a list.
@@ -620,7 +686,7 @@ def main():
 
     # Define weeks (single week or range of weeks)
     #weeks = current_week  # Set to current week
-    weeks = list(range(21,22))
+    weeks = list(range(22,23))
     #weeks = ensure_iterable(weeks)  # Ensure weeks is iterable
 
     # Loop through seasons and weeks

@@ -1,5 +1,10 @@
+## Import the current season schedule at the begining of each season
+## Scrap saves this as a csv file which will be manually imported into the currentseasonschedule table
+## Once this is imported, Import Bye weeks the current season
+## by weeks and days calcualtion can then be performed once done
+
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Comment
 import pandas as pd
 import json
 import time
@@ -99,12 +104,34 @@ class NFLScheduleScraper:
             
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # Find the games table
-            games_table = soup.find('table', {'id': 'games'})
+            # PFR often puts tables in HTML comments - check for that first
+            comments = soup.find_all(string=lambda text: isinstance(text, Comment))
+            games_table = None
+            
+            # Look for the games table in comments
+            for comment in comments:
+                if 'id="games"' in comment:
+                    print("🔍 Found games table in HTML comment")
+                    comment_soup = BeautifulSoup(comment, 'html.parser')
+                    games_table = comment_soup.find('table', {'id': 'games'})
+                    if games_table:
+                        break
+            
+            # If not found in comments, try direct search
+            if not games_table:
+                print("🔍 Looking for games table directly in HTML")
+                games_table = soup.find('table', {'id': 'games'})
+            
+            if not games_table:
+                # Try alternative selectors
+                games_table = soup.find('table', {'class': 'stats_table'})
+                if games_table:
+                    print("🔍 Found stats_table instead of games table")
+            
             if not games_table:
                 raise ValueError("Could not find games table on the page")
             
-            print(f"🔍 Found games table: {games_table is not None}")
+            print(f"✅ Found games table")
             
             games = []
             
@@ -115,50 +142,41 @@ class NFLScheduleScraper:
                 return games
                 
             rows = tbody.find_all('tr')
-            print(f"🔍 Found {len(rows)} total rows in tbody")
             
             for i, row in enumerate(rows):
-                print(f"🔍 Processing row {i}")
                 
                 # Skip header rows and empty rows
                 if row.get('class') and 'thead' in row.get('class'):
-                    print(f"  ↳ Skipping header row")
+
                     continue
                 
                 cells = row.find_all(['td', 'th'])
-                print(f"  ↳ Found {len(cells)} cells")
-                
+
                 if len(cells) < 6:  # Need at least 6 columns
-                    print(f"  ↳ Skipping row - not enough cells ({len(cells)} < 6)")
+
                     continue
                 
                 try:
-                    # Extract data using data-stat attributes
-                    week_cell = row.find('td', {'data-stat': 'week_num'})
-                    day_cell = row.find('td', {'data-stat': 'game_day_of_week'})
-                    date_cell = row.find('td', {'data-stat': 'boxscore_word'})
-                    visitor_cell = row.find('td', {'data-stat': 'visitor_team'})
-                    home_cell = row.find('td', {'data-stat': 'home_team'})
-                    time_cell = row.find('td', {'data-stat': 'gametime'})
+                    # Extract data using data-stat attributes - week_num SHOULD exist
+                    week_cell = row.find(['td', 'th'], {'data-stat': 'week_num'})  # Include 'th' too
+                    day_cell = row.find(['td', 'th'], {'data-stat': 'game_day_of_week'})
+                    date_cell = row.find(['td', 'th'], {'data-stat': 'boxscore_word'})
+                    visitor_cell = row.find(['td', 'th'], {'data-stat': 'visitor_team'})
+                    home_cell = row.find(['td', 'th'], {'data-stat': 'home_team'})
+                    time_cell = row.find(['td', 'th'], {'data-stat': 'gametime'})
                     
-                    print(f"  ↳ Cells found - Week: {week_cell is not None}, Day: {day_cell is not None}, Date: {date_cell is not None}")
-                    print(f"  ↳ Cells found - Visitor: {visitor_cell is not None}, Home: {home_cell is not None}, Time: {time_cell is not None}")
                     
                     # Skip if any required cells are missing
                     if not all([week_cell, day_cell, date_cell, visitor_cell, home_cell, time_cell]):
-                        print(f"  ↳ Skipping row - missing required cells")
                         continue
                     
                     week = week_cell.get_text(strip=True)
-                    print(f"  ↳ Week found: '{week}'")
+
                     
                     # Filter to preseason and regular season (when available)
                     if not self._is_valid_game(week):
-                        print(f"  ↳ Skipping week '{week}' - not a valid game")
                         continue
-                    
-                    print(f"  ↳ Processing valid game for week '{week}'")
-                    
+
                     day = day_cell.get_text(strip=True)
                     date = date_cell.get_text(strip=True)
                     
@@ -176,9 +194,6 @@ class NFLScheduleScraper:
                     else:
                         home_name = home_cell.get_text(strip=True)
                     
-                    # Debug output to see what team names we're getting
-                    print(f"🔍 Debug - Visitor: '{visitor_name}', Home: '{home_name}'")
-                    
                     time_str = time_cell.get_text(strip=True)
                     
                     # Convert team names to IDs
@@ -194,11 +209,11 @@ class NFLScheduleScraper:
                         'date': date_with_year,
                         'awayteam': away_team_id,
                         'hometeam': home_team_id,
-                        'time': time_str
+                        'time': time_str,
+                        'season': self.season
                     }
                     
                     games.append(game_data)
-                    print(f"✅ Week {week}: {away_team_id} @ {home_team_id} - {date_with_year} {time_str}")
                     
                 except Exception as e:
                     print(f"⚠️  Error processing row: {e}")

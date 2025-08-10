@@ -967,8 +967,8 @@ def clean_parsed_data(df):
     
     return df
 def main():
-    seasons = [2012]  # Modify as needed
-    weeks = list(range(19,20))  # Scrape all regular season weeks
+    seasons = [2024]  # Modify as needed
+    weeks = list(range(22,23))  # Scrape all regular season weeks
     
     for season in seasons:
         for week in weeks:

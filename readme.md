@@ -204,3 +204,4 @@ Potential improvements:
 3. API implementation
 4. Additional statistics
 5. Historical data support
+6.

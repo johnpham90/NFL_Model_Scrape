@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timedelta
 from time import sleep
 from collections.abc import Iterable 
+import re
 
 # Base URL and save path
 base_url = "https://www.pro-football-reference.com"
@@ -55,6 +56,17 @@ TEAM_MAPPING = {
     'FOOTBALL TEAM': 'WAS', 'WASHINGTON FOOTBALL TEAM': 'WAS', 'WASFOOTBALL TEAM': 'WAS', 'WFT': 'WAS',
     'REDSKINS': 'WAS', 'WASHINGTON REDSKINS': 'WAS', 'WASREDSKINS': 'WAS'
 }
+
+def extract_player_id(href):
+    """Extract player ID from href URL"""
+    if not href:
+        return None
+    
+    # Pattern to match player URLs like /players/M/MahoPa00.htm
+    match = re.search(r'/players/[A-Z]/([^/]+)\.htm', href)
+    if match:
+        return match.group(1)  # Returns the player ID part (e.g., "MahoPa00")
+    return None
 
 def make_request_with_retry(url, headers, max_retries=3, timeout=30):
     """Make HTTP request with retry logic"""
@@ -116,12 +128,20 @@ def process_starters_table(table, teamid, hometeamid, awayteamid, season, week):
                 
             row_data = {}
             
-            # Get player name from th element
+            # Get player name and ID from th element
             player_cell = row.find('th', {'data-stat': 'player'})
             if player_cell:
                 player_name = player_cell.text.strip()
                 if player_name:
                     row_data['player'] = player_name
+                    
+                    # Extract player ID from the link
+                    player_link = player_cell.find('a')
+                    if player_link and player_link.get('href'):
+                        player_id = extract_player_id(player_link.get('href'))
+                        row_data['playerid'] = player_id
+                    else:
+                        row_data['playerid'] = None
                 else:
                     continue
             else:
@@ -172,12 +192,20 @@ def process_snap_counts_table(table, teamid, hometeamid, awayteamid, season, wee
                 
             row_data = {}
             
-            # Get player name from th element
+            # Get player name and ID from th element
             player_cell = row.find('th', {'data-stat': 'player'})
             if player_cell:
                 player_name = player_cell.text.strip()
                 if player_name:
                     row_data['player'] = player_name
+                    
+                    # Extract player ID from the link
+                    player_link = player_cell.find('a')
+                    if player_link and player_link.get('href'):
+                        player_id = extract_player_id(player_link.get('href'))
+                        row_data['playerid'] = player_id
+                    else:
+                        row_data['playerid'] = None
                 else:
                     continue
             else:
@@ -394,8 +422,8 @@ def scrape_nfl_starters_and_snap_counts(season, week):
     if all_starters_data:
         try:
             starters_df = pd.DataFrame(all_starters_data)
-            # Reorder columns for better readability
-            column_order = ['player', 'pos', 'teamid', 'hometeamid', 'awayteamid', 'season', 'week']
+            # Reorder columns for better readability (now includes playerid)
+            column_order = ['player', 'playerid', 'pos', 'teamid', 'hometeamid', 'awayteamid', 'season', 'week']
             starters_df = starters_df[column_order]
             
             starters_file_name = f"{season}_Week{week}_Starters.xlsx"
@@ -415,8 +443,8 @@ def scrape_nfl_starters_and_snap_counts(season, week):
     if all_snap_counts_data:
         try:
             snap_counts_df = pd.DataFrame(all_snap_counts_data)
-            # Reorder columns for better readability
-            column_order = ['player', 'pos', 'off_num', 'off_pct', 'def_num', 'def_pct', 
+            # Reorder columns for better readability (now includes playerid)
+            column_order = ['player', 'playerid', 'pos', 'off_num', 'off_pct', 'def_num', 'def_pct', 
                           'st_num', 'st_pct', 'teamid', 'hometeamid', 'awayteamid', 'season', 'week']
             # Only include columns that exist in the dataframe
             existing_columns = [col for col in column_order if col in snap_counts_df.columns]
@@ -446,11 +474,11 @@ def ensure_iterable(value):
 def main():
     """Main execution function"""
     # Define seasons (single or multiple years)
-    seasons = list (range(2004, 2012))  # Single season or range of seasons
+    seasons = 2024  # Single season or range of seasons
     seasons = ensure_iterable(seasons)
 
     # Define weeks (single week or range of weeks)
-    weeks = list(range(1, 22))  # Adjust as needed
+    weeks = list(range(22, 23))  # Adjust as needed
     weeks = ensure_iterable(weeks)
 
     # Loop through seasons and weeks

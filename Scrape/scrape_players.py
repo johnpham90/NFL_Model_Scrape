@@ -474,11 +474,11 @@ def ensure_iterable(value):
 def main():
     """Main execution function"""
     # Define seasons (single or multiple years)
-    seasons = 2024  # Single season or range of seasons
+    seasons = list(range(2004, 2024))  # Single season or range of seasons
     seasons = ensure_iterable(seasons)
 
     # Define weeks (single week or range of weeks)
-    weeks = list(range(22, 23))  # Adjust as needed
+    weeks = list(range(1, 23))  # Adjust as needed
     weeks = ensure_iterable(weeks)
 
     # Loop through seasons and weeks

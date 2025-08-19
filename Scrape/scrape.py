@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timedelta
 from time import sleep
 from collections.abc import Iterable 
+import re
 #from Utilis.current_week import get_current_nfl_week
 
 # Base URL and save path
@@ -265,6 +266,22 @@ def scrape_game_summary(main_page_soup, box_score_soup, date_text, season, week,
         print(f"{key}: {value}")
     
     return pd.DataFrame([game_info])
+def extract_player_id(player_cell):
+    """
+    Return the PFR player id like 'JackLa00' from a player <th> cell.
+    Prefers the data-append-csv attribute, falls back to parsing the <a href>.
+    """
+    if not player_cell:
+        return None
+    pid = player_cell.get('data-append-csv')
+    if pid:
+        return pid
+    a = player_cell.find('a')
+    if a and a.get('href'):
+        m = re.search(r'/players/[A-Z]/([A-Za-z0-9]+)\.htm', a['href'])
+        if m:
+            return m.group(1)
+    return None
 
 def scrape_box_score(url, season, week, date_text, away_team, home_team, data_storage):
     time.sleep(2)
@@ -367,23 +384,30 @@ def scrape_box_score(url, season, week, date_text, away_team, home_team, data_st
         """Process player offense table"""
         data_rows = []
         tbody = table.find('tbody')
-        
+
         if tbody:
             for row in tbody.find_all('tr', class_=lambda x: x != 'thead'):
                 row_data = {}
-                
+
                 player_cell = row.find('th', {'data-stat': 'player'})
                 if player_cell:
-                    row_data['player'] = player_cell.text.strip()
-                    
+                    player_name = player_cell.text.strip()
+                    if player_name:
+                        row_data['player'] = player_name
+                        row_data['playerid'] = extract_player_id(player_cell)
+                    else:
+                        continue  # no usable player name
+                else:
+                    continue  # no player cell
+
                 for cell in row.find_all('td'):
                     stat = cell.get('data-stat', '')
                     if stat:
                         row_data[stat] = cell.text.strip()
-                
+
                 if row_data:
                     data_rows.append(row_data)
-        
+
         return data_rows
 
     # Add processing for Player_Offense section
@@ -504,14 +528,17 @@ def scrape_box_score(url, season, week, date_text, away_team, home_team, data_st
 
                         row_data = {}
                         
-                        # Get player name
+                        # Get player name + id
                         player_cell = row.find('th', {'data-stat': 'player'})
                         if player_cell:
                             player_name = player_cell.text.strip()
                             if player_name and player_name not in header_texts:
                                 row_data['player'] = player_name
+                                row_data['playerid'] = extract_player_id(player_cell)
                             else:
                                 continue
+                        else:
+                            continue  # no player cell; skip
                         
                         # Get all other stats
                         for cell in row.find_all(['td', 'th']):
@@ -677,7 +704,7 @@ def main():
     week1_start_date = '2024-09-05'
 
     # Define seasons (single or multiple years)
-    seasons = 2024  # Single season or range of seasons
+    seasons = list(range(2012, 2025)) # Single season or range of seasons
     seasons = ensure_iterable(seasons)
 
     # Get the current NFL week
@@ -686,7 +713,7 @@ def main():
 
     # Define weeks (single week or range of weeks)
     #weeks = current_week  # Set to current week
-    weeks = list(range(22,23))
+    weeks = list(range(1,23))
     #weeks = ensure_iterable(weeks)  # Ensure weeks is iterable
 
     # Loop through seasons and weeks
@@ -694,7 +721,7 @@ def main():
         for week in weeks:
             print(f"\nScraping data for Season {season}, Week {week}")
             scrape_nfl_data(season, week)
-            time.sleep(5)  # Add delay between weeks
+            time.sleep(3)  # Add delay between weeks
 
 if __name__ == "__main__":
     main()

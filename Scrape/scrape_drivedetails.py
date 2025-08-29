@@ -9,6 +9,9 @@ import re
 import random
 import urllib3
 urllib3.PoolManager(maxsize=10)
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from Utilis.current_week_api import get_nfl_current_week
 
 # Base URL and save pathpip
 base_url = "https://www.pro-football-reference.com"
@@ -967,8 +970,10 @@ def clean_parsed_data(df):
     
     return df
 def main():
-    seasons = [2024]  # Modify as needed
-    weeks = list(range(22,23))  # Scrape all regular season weeks
+    seasons = [2025]  # Modify as needed
+
+    current_week = get_nfl_current_week
+    weeks = [current_week]  # Scrape all regular season weeks
     
     for season in seasons:
         for week in weeks:

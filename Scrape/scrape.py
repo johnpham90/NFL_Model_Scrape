@@ -1,4 +1,5 @@
 import os
+import sys
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -8,7 +9,8 @@ from datetime import datetime, timedelta
 from time import sleep
 from collections.abc import Iterable 
 import re
-#from Utilis.current_week import get_current_nfl_week
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from Utilis.current_week_api import get_nfl_current_week
 
 # Base URL and save path
 base_url = "https://www.pro-football-reference.com"
@@ -704,7 +706,7 @@ def main():
     week1_start_date = '2024-09-05'
 
     # Define seasons (single or multiple years)
-    seasons = list(range(2012, 2025)) # Single season or range of seasons
+    seasons = 2024 # Single season or range of seasons
     seasons = ensure_iterable(seasons)
 
     # Get the current NFL week
@@ -713,7 +715,9 @@ def main():
 
     # Define weeks (single week or range of weeks)
     #weeks = current_week  # Set to current week
-    weeks = list(range(1,23))
+    current_week = get_nfl_current_week()
+
+    weeks = [current_week] if current_week else []
     #weeks = ensure_iterable(weeks)  # Ensure weeks is iterable
 
     # Loop through seasons and weeks

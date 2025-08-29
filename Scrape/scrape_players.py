@@ -8,6 +8,9 @@ from datetime import datetime, timedelta
 from time import sleep
 from collections.abc import Iterable 
 import re
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from Utilis.current_week_api import get_nfl_current_week
 
 # Base URL and save path
 base_url = "https://www.pro-football-reference.com"
@@ -474,11 +477,12 @@ def ensure_iterable(value):
 def main():
     """Main execution function"""
     # Define seasons (single or multiple years)
-    seasons = list(range(2004, 2024))  # Single season or range of seasons
+    seasons = 2025  # Single season or range of seasons
     seasons = ensure_iterable(seasons)
 
     # Define weeks (single week or range of weeks)
-    weeks = list(range(1, 23))  # Adjust as needed
+    current_week = get_nfl_current_week()
+    weeks = [current_week]  # Adjust as needed
     weeks = ensure_iterable(weeks)
 
     # Loop through seasons and weeks

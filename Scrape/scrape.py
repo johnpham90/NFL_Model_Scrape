@@ -706,7 +706,7 @@ def main():
     week1_start_date = '2024-09-05'
 
     # Define seasons (single or multiple years)
-    seasons = 2024 # Single season or range of seasons
+    seasons = 2025 # Single season or range of seasons
     seasons = ensure_iterable(seasons)
 
     # Get the current NFL week
@@ -717,7 +717,7 @@ def main():
     #weeks = current_week  # Set to current week
     current_week = get_nfl_current_week()
 
-    weeks = [current_week]
+    weeks = [1]
     #weeks = ensure_iterable(weeks)  # Ensure weeks is iterable
 
     # Loop through seasons and weeks

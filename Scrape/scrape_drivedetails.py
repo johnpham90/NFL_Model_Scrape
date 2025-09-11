@@ -973,7 +973,7 @@ def main():
     seasons = [2025]  # Modify as needed
 
     current_week = get_nfl_current_week
-    weeks = [current_week]  # Scrape all regular season weeks
+    weeks = [1]  # Scrape all regular season weeks
     
     for season in seasons:
         for week in weeks:

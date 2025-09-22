@@ -379,54 +379,7 @@ def scrape_box_score(url, season, week, date_text, away_team, home_team, data_st
         }
     }
 
-    if 'Player_Offense' not in data_storage:
-        data_storage['Player_Offense'] = []
-
-    def process_player_offense(table):
-        """Process player offense table"""
-        data_rows = []
-        tbody = table.find('tbody')
-
-        if tbody:
-            for row in tbody.find_all('tr', class_=lambda x: x != 'thead'):
-                row_data = {}
-
-                player_cell = row.find('th', {'data-stat': 'player'})
-                if player_cell:
-                    player_name = player_cell.text.strip()
-                    if player_name:
-                        row_data['player'] = player_name
-                        row_data['playerid'] = extract_player_id(player_cell)
-                    else:
-                        continue  # no usable player name
-                else:
-                    continue  # no player cell
-
-                for cell in row.find_all('td'):
-                    stat = cell.get('data-stat', '')
-                    if stat:
-                        row_data[stat] = cell.text.strip()
-
-                if row_data:
-                    data_rows.append(row_data)
-
-        return data_rows
-
-    # Add processing for Player_Offense section
-    div = soup.find('div', id='all_player_offense')
-    if div:
-        table = find_commented_table(div, 'player_offense')
-        if table:
-            data_rows = process_player_offense(table)
-            if data_rows:
-                stats_df = pd.DataFrame(data_rows)
-                stats_df['Date'] = date_text
-                stats_df['Season'] = season
-                stats_df['Week'] = week
-                stats_df['Away Team'] = away_team
-                stats_df['Home Team'] = home_team
-                data_storage['Player_Offense'].append(stats_df)
-                print("Successfully scraped Player Offense data")
+    
 
     # Define header texts to exclude
     header_texts = {'Kick Returns', 'Punt Returns', 'Scoring', 'Punting'}
@@ -707,7 +660,7 @@ def main():
     week1_start_date = '2024-09-05'
 
     # Define seasons (single or multiple years)
-    seasons = [2025] # Single season or range of seasons
+    seasons = [2024] # Single season or range of seasons
     seasons = ensure_iterable(seasons)
 
     # Get the current NFL week
@@ -718,7 +671,7 @@ def main():
     #weeks = current_week  # Set to current week
     current_week = get_nfl_current_week()
 
-    weeks = [1]
+    weeks = [21]
     #weeks = ensure_iterable(weeks)  # Ensure weeks is iterable
 
     # Loop through seasons and weeks

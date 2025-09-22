@@ -674,7 +674,7 @@ def scrape_nfl_data(season, week):
                 if stat_type == "ExpectedPoints":
                     file_name = f"{season}_Week{week}_ExpectedPoints.xlsx"
                 elif stat_type == "Drives":
-                    file_name = f"{season}_Week{week}_Drive_Details.xlsx"  # Note: Drive_Details not Drives_Stats
+                    file_name = f"{season}_Week{week}_Drives_Stats.xlsx"
                 else:
                     file_name = f"{season}_Week{week}_{stat_type}_Stats.xlsx"
                 

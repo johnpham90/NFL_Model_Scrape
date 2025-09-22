@@ -669,6 +669,7 @@ def scrape_nfl_data(season, week):
         try:
             if data_frames:
                 combined_df = pd.concat(data_frames, ignore_index=True)
+                combined_df = combined_df.drop_duplicates(keep='first')
                 
                 # Handle special naming cases to match your existing files
                 if stat_type == "ExpectedPoints":
@@ -706,7 +707,7 @@ def main():
     week1_start_date = '2024-09-05'
 
     # Define seasons (single or multiple years)
-    seasons = 2025 # Single season or range of seasons
+    seasons = [2025] # Single season or range of seasons
     seasons = ensure_iterable(seasons)
 
     # Get the current NFL week

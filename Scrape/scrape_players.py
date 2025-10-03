@@ -482,7 +482,7 @@ def main():
 
     # Define weeks (single week or range of weeks)
     current_week = get_nfl_current_week()
-    weeks = [current_week]  # Adjust as needed
+    weeks = [3, 4]  # Adjust as needed
     weeks = ensure_iterable(weeks)
 
     # Loop through seasons and weeks

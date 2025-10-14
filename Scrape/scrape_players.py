@@ -69,6 +69,12 @@ def extract_player_id(href):
     match = re.search(r'/players/[A-Z]/([^/]+)\.htm', href)
     if match:
         return match.group(1)  # Returns the player ID part (e.g., "MahoPa00")
+    
+    # Backup pattern without the letter directory
+    match = re.search(r'/players/([^/]+)\.htm', href)
+    if match:
+        return match.group(1)
+    
     return None
 
 def make_request_with_retry(url, headers, max_retries=3, timeout=30):
@@ -120,61 +126,78 @@ def process_starters_table(table, teamid, hometeamid, awayteamid, season, week):
     data_rows = []
     
     if not table:
+        print(f"  ⚠️  No table provided to process_starters_table")
         return data_rows
 
+    # Find tbody - try multiple ways
     tbody = table.find('tbody')
-    if tbody:
-        for row in tbody.find_all('tr'):
-            # Skip header rows or empty rows
-            if row.find('th', {'scope': 'col'}) or not row.find('th', {'data-stat': 'player'}):
-                continue
-                
-            row_data = {}
-            
-            # Get player name and ID from th element
-            player_cell = row.find('th', {'data-stat': 'player'})
-            if player_cell:
-                player_name = player_cell.text.strip()
-                if player_name:
-                    row_data['player'] = player_name
-                    
-                    # Extract player ID from the link
-                    player_link = player_cell.find('a')
-                    if player_link and player_link.get('href'):
-                        player_id = extract_player_id(player_link.get('href'))
-                        row_data['playerid'] = player_id
-                    else:
-                        row_data['playerid'] = None
-                else:
-                    continue
-            else:
-                continue
-            
-            # Get position from td element
-            pos_cell = row.find('td', {'data-stat': 'pos'})
-            if pos_cell:
-                row_data['pos'] = pos_cell.text.strip()
-            
-            # Add team and game context
-            row_data['teamid'] = teamid
-            row_data['hometeamid'] = hometeamid
-            row_data['awayteamid'] = awayteamid
-            row_data['season'] = season
-            row_data['week'] = week
-            
-            if row_data and len(row_data) >= 3:  # Ensure we have meaningful data
-                data_rows.append(row_data)
+    if not tbody:
+        print(f"  ⚠️  No tbody found, using table directly")
+        tbody = table
+    
+    rows = tbody.find_all('tr')
+    print(f"  Found {len(rows)} rows in starters table")
+    
+    for idx, row in enumerate(rows):
+        # Skip header rows
+        if row.find('th', {'scope': 'col'}):
+            continue
+        
+        # Look for player cell - could be 'th' or 'td'
+        player_cell = row.find('th', {'data-stat': 'player'})
+        if not player_cell:
+            player_cell = row.find('td', {'data-stat': 'player'})
+        
+        if not player_cell:
+            continue
+        
+        player_name = player_cell.get_text(strip=True)
+        if not player_name or player_name == '':
+            continue
+        
+        row_data = {'player': player_name}
+        
+        # Extract player ID from the link
+        player_link = player_cell.find('a', href=True)
+        if player_link:
+            href = player_link['href']
+            player_id = extract_player_id(href)
+            row_data['playerid'] = player_id
+            if not player_id:
+                print(f"  ⚠️  Row {idx}: '{player_name}' - Could not extract ID from href: {href}")
+        else:
+            row_data['playerid'] = None
+            print(f"  ⚠️  Row {idx}: '{player_name}' - No <a> tag found in player cell")
+        
+        # Get position
+        pos_cell = row.find('td', {'data-stat': 'pos'})
+        if pos_cell:
+            row_data['pos'] = pos_cell.get_text(strip=True)
+        else:
+            row_data['pos'] = None
+        
+        # Add context
+        row_data['teamid'] = teamid
+        row_data['hometeamid'] = hometeamid
+        row_data['awayteamid'] = awayteamid
+        row_data['season'] = season
+        row_data['week'] = week
+        
+        data_rows.append(row_data)
+        print(f"  ✓ Row {idx}: {player_name} (ID: {row_data.get('playerid', 'MISSING')}) - {row_data.get('pos', 'N/A')}")
     
     return data_rows
+
 
 def process_snap_counts_table(table, teamid, hometeamid, awayteamid, season, week):
     """Process snap counts table for a team"""
     data_rows = []
     
     if not table:
+        print(f"  ⚠️  No table provided to process_snap_counts_table")
         return data_rows
 
-    # Column mapping from HTML data-stat to our column names
+    # Column mapping
     column_mapping = {
         'player': 'player',
         'pos': 'pos',
@@ -186,51 +209,63 @@ def process_snap_counts_table(table, teamid, hometeamid, awayteamid, season, wee
         'st_pct': 'st_pct'
     }
 
+    # Find tbody - try multiple ways
     tbody = table.find('tbody')
-    if tbody:
-        for row in tbody.find_all('tr'):
-            # Skip header rows or empty rows
-            if row.find('th', {'scope': 'col'}) or not row.find('th', {'data-stat': 'player'}):
-                continue
-                
-            row_data = {}
-            
-            # Get player name and ID from th element
-            player_cell = row.find('th', {'data-stat': 'player'})
-            if player_cell:
-                player_name = player_cell.text.strip()
-                if player_name:
-                    row_data['player'] = player_name
-                    
-                    # Extract player ID from the link
-                    player_link = player_cell.find('a')
-                    if player_link and player_link.get('href'):
-                        player_id = extract_player_id(player_link.get('href'))
-                        row_data['playerid'] = player_id
-                    else:
-                        row_data['playerid'] = None
-                else:
-                    continue
-            else:
-                continue
-            
-            # Get all other stats from td elements
-            for cell in row.find_all('td'):
-                stat = cell.get('data-stat', '')
-                if stat in column_mapping:
-                    value = cell.text.strip()
-                    mapped_column = column_mapping[stat]
-                    row_data[mapped_column] = value
-            
-            # Add team and game context
-            row_data['teamid'] = teamid
-            row_data['hometeamid'] = hometeamid
-            row_data['awayteamid'] = awayteamid
-            row_data['season'] = season
-            row_data['week'] = week
-            
-            if row_data and len(row_data) >= 5:  # Ensure we have meaningful data
-                data_rows.append(row_data)
+    if not tbody:
+        print(f"  ⚠️  No tbody found, using table directly")
+        tbody = table
+    
+    rows = tbody.find_all('tr')
+    print(f"  Found {len(rows)} rows in snap counts table")
+    
+    for idx, row in enumerate(rows):
+        # Skip header rows
+        if row.find('th', {'scope': 'col'}):
+            continue
+        
+        # Look for player cell - could be 'th' or 'td'
+        player_cell = row.find('th', {'data-stat': 'player'})
+        if not player_cell:
+            player_cell = row.find('td', {'data-stat': 'player'})
+        
+        if not player_cell:
+            continue
+        
+        player_name = player_cell.get_text(strip=True)
+        if not player_name or player_name == '':
+            continue
+        
+        row_data = {'player': player_name}
+        
+        # Extract player ID from the link
+        player_link = player_cell.find('a', href=True)
+        if player_link:
+            href = player_link['href']
+            player_id = extract_player_id(href)
+            row_data['playerid'] = player_id
+            if not player_id:
+                print(f"  ⚠️  Row {idx}: '{player_name}' - Could not extract ID from href: {href}")
+        else:
+            row_data['playerid'] = None
+            print(f"  ⚠️  Row {idx}: '{player_name}' - No <a> tag found in player cell")
+        
+        # Get all other stats
+        for cell in row.find_all('td'):
+            stat = cell.get('data-stat', '')
+            if stat in column_mapping:
+                value = cell.get_text(strip=True)
+                mapped_column = column_mapping[stat]
+                row_data[mapped_column] = value
+        
+        # Add context
+        row_data['teamid'] = teamid
+        row_data['hometeamid'] = hometeamid
+        row_data['awayteamid'] = awayteamid
+        row_data['season'] = season
+        row_data['week'] = week
+        
+        data_rows.append(row_data)
+        print(f"  ✓ Row {idx}: {player_name} (ID: {row_data.get('playerid', 'MISSING')}) - {row_data.get('pos', 'N/A')}")
     
     return data_rows
 
@@ -477,12 +512,12 @@ def ensure_iterable(value):
 def main():
     """Main execution function"""
     # Define seasons (single or multiple years)
-    seasons = 2025  # Single season or range of seasons
+    seasons = [2019, 2018, 2017, 2016, 2015, 2014, 2013, 2012, 2011, 2010, 2009, 2008, 2007, 2006, 2005, 2004]  # Single season or range of seasons
     seasons = ensure_iterable(seasons)
 
     # Define weeks (single week or range of weeks)
     current_week = get_nfl_current_week()
-    weeks = [3, 4]  # Adjust as needed
+    weeks = [1,2,3,4,5,6,7,8,10,11,12,13,14,15,16,17,18,19,20,21,22]  # Adjust as needed
     weeks = ensure_iterable(weeks)
 
     # Loop through seasons and weeks

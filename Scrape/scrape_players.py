@@ -512,12 +512,12 @@ def ensure_iterable(value):
 def main():
     """Main execution function"""
     # Define seasons (single or multiple years)
-    seasons = [2019, 2018, 2017, 2016, 2015, 2014, 2013, 2012, 2011, 2010, 2009, 2008, 2007, 2006, 2005, 2004]  # Single season or range of seasons
+    seasons = [2025]  # Single season or range of seasons
     seasons = ensure_iterable(seasons)
 
     # Define weeks (single week or range of weeks)
     current_week = get_nfl_current_week()
-    weeks = [1,2,3,4,5,6,7,8,10,11,12,13,14,15,16,17,18,19,20,21,22]  # Adjust as needed
+    weeks = [5]  # Adjust as needed
     weeks = ensure_iterable(weeks)
 
     # Loop through seasons and weeks

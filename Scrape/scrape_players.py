@@ -10,7 +10,7 @@ from collections.abc import Iterable
 import re
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from Utilis.current_week_api import get_nfl_current_week
+from Utilis.weeks_api import get_nfl_current_week, get_nfl_previous_week
 
 # Base URL and save path
 base_url = "https://www.pro-football-reference.com"
@@ -517,7 +517,9 @@ def main():
 
     # Define weeks (single week or range of weeks)
     current_week = get_nfl_current_week()
-    weeks = [5]  # Adjust as needed
+    previous_week = get_nfl_previous_week()
+
+    weeks = [previous_week]  # Adjust as needed
     weeks = ensure_iterable(weeks)
 
     # Loop through seasons and weeks

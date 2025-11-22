@@ -10,7 +10,7 @@ from time import sleep
 from collections.abc import Iterable 
 import re
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from Utilis.current_week_api import get_nfl_current_week
+from Utilis.weeks_api import get_nfl_current_week, get_nfl_previous_week
 
 # Base URL and save path
 base_url = "https://www.pro-football-reference.com"
@@ -670,8 +670,9 @@ def main():
     # Define weeks (single week or range of weeks)
     #weeks = current_week  # Set to current week
     current_week = get_nfl_current_week()
+    previous_week = get_nfl_previous_week()
 
-    weeks = [5]
+    weeks = [previous_week]
     #weeks = ensure_iterable(weeks)  # Ensure weeks is iterable
 
     # Loop through seasons and weeks

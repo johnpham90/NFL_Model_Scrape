@@ -11,6 +11,7 @@ from collections.abc import Iterable
 import re
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from Utilis.weeks_api import get_nfl_current_week, get_nfl_previous_week
+from prefect import flow, task
 
 # Base URL and save path
 base_url = "https://www.pro-football-reference.com"
@@ -28,6 +29,7 @@ TEAM_MAPPING = {
     "Texans": "HOU", "Broncos": "DEN", "Commanders": "WAS", "Patriots": "NWE"
 }
 
+@task
 def make_request_with_retry(url, headers, max_retries=3, timeout=30):
     """Make HTTP request with retry logic"""
     for attempt in range(max_retries):
@@ -48,6 +50,7 @@ def make_request_with_retry(url, headers, max_retries=3, timeout=30):
             print(f"Error occurred: {str(e)}. Retrying... (Attempt {attempt + 1} of {max_retries})")
             time.sleep(5 * (attempt + 1))
 
+@task
 def find_commented_table(div, table_id):
     """Find table in comments"""
     if not div:
@@ -72,6 +75,7 @@ def find_commented_table(div, table_id):
     
     return None
 
+@task
 def process_expected_points_table(table):
     """Process the Expected Points Summary table with team mapping"""
     rows = []
@@ -94,6 +98,7 @@ def process_expected_points_table(table):
                 rows.append(row_data)
     return rows
 
+@task
 def process_drive_stats(table, team, is_home):
     """Process drive stats table for a team"""
     data_rows = []
@@ -130,6 +135,7 @@ def process_drive_stats(table, team, is_home):
     
     return data_rows
 
+@task
 def process_team_stats(table, away_team, home_team):
     """Process team stats"""
     data_rows = []
@@ -164,6 +170,7 @@ def process_team_stats(table, away_team, home_team):
     
     return data_rows
 
+@task
 def scrape_game_summary(main_page_soup, box_score_soup, date_text, season, week, away_team, home_team):
     game_info = {
         'Date': date_text,
@@ -268,6 +275,8 @@ def scrape_game_summary(main_page_soup, box_score_soup, date_text, season, week,
         print(f"{key}: {value}")
     
     return pd.DataFrame([game_info])
+
+@task
 def extract_player_id(player_cell):
     """
     Return the PFR player id like 'JackLa00' from a player <th> cell.
@@ -285,6 +294,7 @@ def extract_player_id(player_cell):
             return m.group(1)
     return None
 
+@task
 def scrape_box_score(url, season, week, date_text, away_team, home_team, data_storage):
     time.sleep(2)
     
@@ -530,6 +540,7 @@ def scrape_box_score(url, season, week, date_text, away_team, home_team, data_st
 
         time.sleep(1)
 
+@task
 def scrape_nfl_data(season, week):
     week_url = f"{base_url}/years/{season}/week_{week}.htm"
     week_path = os.path.join(save_path, str(season), f"Week_{week}")
@@ -643,6 +654,7 @@ def scrape_nfl_data(season, week):
             import traceback
             traceback.print_exc()
 
+@task
 def ensure_iterable(value):
     """
     Ensures the input value is iterable. If not, wraps it in a list.
@@ -655,6 +667,7 @@ def ensure_iterable(value):
         return value
     return [value]  
 
+@flow
 def main():
     # Define Week 1 start date
     week1_start_date = '2024-09-05'

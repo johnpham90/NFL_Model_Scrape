@@ -62,6 +62,192 @@ TEAM_MAPPING = {
     'REDSKINS': 'WAS', 'WASHINGTON REDSKINS': 'WAS', 'WASREDSKINS': 'WAS'
 }
 
+# ========== UTILITY FUNCTIONS (NO TASKS) ==========
+
+def extract_player_id(href):
+    """Extract player ID from href URL"""
+    if not href:
+        return None
+    
+    # Pattern to match player URLs like /players/M/MahoPa00.htm
+    match = re.search(r'/players/[A-Z]/([^/]+)\.htm', href)
+    if match:
+        return match.group(1)
+    
+    # Backup pattern without the letter directory
+    match = re.search(r'/players/([^/]+)\.htm', href)
+    if match:
+        return match.group(1)
+    
+    return None
+
+def find_commented_table(div, table_id):
+    """Find table in comments"""
+    if not div:
+        return None
+        
+    # First try direct search
+    table = div.find('table', {'id': table_id})
+    if table:
+        return table
+        
+    # Then look in comments
+    comments = div.find_all(string=lambda text: isinstance(text, Comment))
+    for comment in comments:
+        try:
+            comment_soup = BeautifulSoup(comment, 'lxml')
+            table = comment_soup.find('table', {'id': table_id})
+            if table:
+                return table
+        except Exception as e:
+            print(f"Error parsing comment: {e}")
+            continue
+    
+    return None
+
+def process_starters_table(table, teamid, hometeamid, awayteamid, season, week):
+    """Process starters table for a team - returns list of dicts"""
+    data_rows = []
+    
+    if not table:
+        print(f"  ⚠️  No table provided to process_starters_table")
+        return data_rows
+
+    tbody = table.find('tbody')
+    if not tbody:
+        tbody = table
+    
+    rows = tbody.find_all('tr')
+    print(f"  Found {len(rows)} rows in starters table")
+    
+    for idx, row in enumerate(rows):
+        if row.find('th', {'scope': 'col'}):
+            continue
+        
+        player_cell = row.find('th', {'data-stat': 'player'})
+        if not player_cell:
+            player_cell = row.find('td', {'data-stat': 'player'})
+        
+        if not player_cell:
+            continue
+        
+        player_name = player_cell.get_text(strip=True)
+        if not player_name:
+            continue
+        
+        row_data = {'player': player_name}
+        
+        # Extract player ID
+        player_link = player_cell.find('a', href=True)
+        if player_link:
+            href = player_link['href']
+            player_id = extract_player_id(href)
+            row_data['playerid'] = player_id
+            if not player_id:
+                print(f"  ⚠️  Row {idx}: '{player_name}' - Could not extract ID from href: {href}")
+        else:
+            row_data['playerid'] = None
+            print(f"  ⚠️  Row {idx}: '{player_name}' - No <a> tag found")
+        
+        # Get position
+        pos_cell = row.find('td', {'data-stat': 'pos'})
+        row_data['pos'] = pos_cell.get_text(strip=True) if pos_cell else None
+        
+        # Add context
+        row_data['teamid'] = teamid
+        row_data['hometeamid'] = hometeamid
+        row_data['awayteamid'] = awayteamid
+        row_data['season'] = season
+        row_data['week'] = week
+        
+        data_rows.append(row_data)
+        print(f"  ✓ Row {idx}: {player_name} (ID: {row_data.get('playerid', 'MISSING')}) - {row_data.get('pos', 'N/A')}")
+    
+    return data_rows
+
+def process_snap_counts_table(table, teamid, hometeamid, awayteamid, season, week):
+    """Process snap counts table for a team - returns list of dicts"""
+    data_rows = []
+    
+    if not table:
+        print(f"  ⚠️  No table provided to process_snap_counts_table")
+        return data_rows
+
+    column_mapping = {
+        'player': 'player',
+        'pos': 'pos',
+        'offense': 'off_num',
+        'off_pct': 'off_pct',
+        'defense': 'def_num',
+        'def_pct': 'def_pct',
+        'special_teams': 'st_num',
+        'st_pct': 'st_pct'
+    }
+
+    tbody = table.find('tbody')
+    if not tbody:
+        tbody = table
+    
+    rows = tbody.find_all('tr')
+    print(f"  Found {len(rows)} rows in snap counts table")
+    
+    for idx, row in enumerate(rows):
+        if row.find('th', {'scope': 'col'}):
+            continue
+        
+        player_cell = row.find('th', {'data-stat': 'player'})
+        if not player_cell:
+            player_cell = row.find('td', {'data-stat': 'player'})
+        
+        if not player_cell:
+            continue
+        
+        player_name = player_cell.get_text(strip=True)
+        if not player_name:
+            continue
+        
+        row_data = {'player': player_name}
+        
+        # Extract player ID
+        player_link = player_cell.find('a', href=True)
+        if player_link:
+            href = player_link['href']
+            player_id = extract_player_id(href)
+            row_data['playerid'] = player_id
+            if not player_id:
+                print(f"  ⚠️  Row {idx}: '{player_name}' - Could not extract ID from href: {href}")
+        else:
+            row_data['playerid'] = None
+            print(f"  ⚠️  Row {idx}: '{player_name}' - No <a> tag found")
+        
+        # Get all other stats
+        for cell in row.find_all('td'):
+            stat = cell.get('data-stat', '')
+            if stat in column_mapping:
+                value = cell.get_text(strip=True)
+                mapped_column = column_mapping[stat]
+                row_data[mapped_column] = value
+        
+        # Add context
+        row_data['teamid'] = teamid
+        row_data['hometeamid'] = hometeamid
+        row_data['awayteamid'] = awayteamid
+        row_data['season'] = season
+        row_data['week'] = week
+        
+        data_rows.append(row_data)
+        print(f"  ✓ Row {idx}: {player_name} (ID: {row_data.get('playerid', 'MISSING')}) - {row_data.get('pos', 'N/A')}")
+    
+    return data_rows
+
+def ensure_iterable(value):
+    """Ensures the input value is iterable."""
+    if isinstance(value, Iterable) and not isinstance(value, str):
+        return value
+    return [value]
+
+# ========== TASK-LEVEL FUNCTIONS ==========
+
 @task(cache_policy=NO_CACHE)
 def get_current_and_previous_week():
     """Get current and previous NFL weeks"""
@@ -98,49 +284,6 @@ def make_request_with_retry(url, headers, max_retries=3, timeout=30):
             time.sleep(5 * (attempt + 1))
 
 @task(cache_policy=NO_CACHE)
-def extract_player_id(href):
-    """Extract player ID from href URL"""
-    if not href:
-        return None
-    
-    # Pattern to match player URLs like /players/M/MahoPa00.htm
-    match = re.search(r'/players/[A-Z]/([^/]+)\.htm', href)
-    if match:
-        return match.group(1)  # Returns the player ID part (e.g., "MahoPa00")
-    
-    # Backup pattern without the letter directory
-    match = re.search(r'/players/([^/]+)\.htm', href)
-    if match:
-        return match.group(1)
-    
-    return None
-
-@task(cache_policy=NO_CACHE)
-def find_commented_table(div, table_id):
-    """Find table in comments"""
-    if not div:
-        return None
-        
-    # First try direct search
-    table = div.find('table', {'id': table_id})
-    if table:
-        return table
-        
-    # Then look in comments
-    comments = div.find_all(string=lambda text: isinstance(text, Comment))
-    for comment in comments:
-        try:
-            comment_soup = BeautifulSoup(comment, 'lxml')
-            table = comment_soup.find('table', {'id': table_id})
-            if table:
-                return table
-        except Exception as e:
-            print(f"Error parsing comment: {e}")
-            continue
-    
-    return None
-
-@task(cache_policy=NO_CACHE)
 def fetch_week_page(season, week):
     """Fetch the main week page and extract game information"""
     week_url = f"{base_url}/years/{season}/week_{week}.htm"
@@ -166,7 +309,6 @@ def fetch_week_page(season, week):
         away_team = team_rows[0].find('td').text.strip()
         home_team = team_rows[1].find('td').text.strip()
         
-        # Get the actual date from the game summary
         date_row = game.find('tr', class_='date')
         game_date = None
         if date_row:
@@ -196,155 +338,6 @@ def fetch_week_page(season, week):
     return games_info
 
 @task(cache_policy=NO_CACHE)
-def process_starters_table(table, teamid, hometeamid, awayteamid, season, week):
-    """Process starters table for a team"""
-    data_rows = []
-    
-    if not table:
-        print(f"  ⚠️  No table provided to process_starters_table")
-        return data_rows
-
-    # Find tbody - try multiple ways
-    tbody = table.find('tbody')
-    if not tbody:
-        print(f"  ⚠️  No tbody found, using table directly")
-        tbody = table
-    
-    rows = tbody.find_all('tr')
-    print(f"  Found {len(rows)} rows in starters table")
-    
-    for idx, row in enumerate(rows):
-        # Skip header rows
-        if row.find('th', {'scope': 'col'}):
-            continue
-        
-        # Look for player cell - could be 'th' or 'td'
-        player_cell = row.find('th', {'data-stat': 'player'})
-        if not player_cell:
-            player_cell = row.find('td', {'data-stat': 'player'})
-        
-        if not player_cell:
-            continue
-        
-        player_name = player_cell.get_text(strip=True)
-        if not player_name or player_name == '':
-            continue
-        
-        row_data = {'player': player_name}
-        
-        # Extract player ID from the link
-        player_link = player_cell.find('a', href=True)
-        if player_link:
-            href = player_link['href']
-            player_id = extract_player_id(href)
-            row_data['playerid'] = player_id
-            if not player_id:
-                print(f"  ⚠️  Row {idx}: '{player_name}' - Could not extract ID from href: {href}")
-        else:
-            row_data['playerid'] = None
-            print(f"  ⚠️  Row {idx}: '{player_name}' - No <a> tag found in player cell")
-        
-        # Get position
-        pos_cell = row.find('td', {'data-stat': 'pos'})
-        if pos_cell:
-            row_data['pos'] = pos_cell.get_text(strip=True)
-        else:
-            row_data['pos'] = None
-        
-        # Add context
-        row_data['teamid'] = teamid
-        row_data['hometeamid'] = hometeamid
-        row_data['awayteamid'] = awayteamid
-        row_data['season'] = season
-        row_data['week'] = week
-        
-        data_rows.append(row_data)
-        print(f"  ✓ Row {idx}: {player_name} (ID: {row_data.get('playerid', 'MISSING')}) - {row_data.get('pos', 'N/A')}")
-    
-    return data_rows
-
-@task(cache_policy=NO_CACHE)
-def process_snap_counts_table(table, teamid, hometeamid, awayteamid, season, week):
-    """Process snap counts table for a team"""
-    data_rows = []
-    
-    if not table:
-        print(f"  ⚠️  No table provided to process_snap_counts_table")
-        return data_rows
-
-    # Column mapping
-    column_mapping = {
-        'player': 'player',
-        'pos': 'pos',
-        'offense': 'off_num',
-        'off_pct': 'off_pct',
-        'defense': 'def_num',
-        'def_pct': 'def_pct',
-        'special_teams': 'st_num',
-        'st_pct': 'st_pct'
-    }
-
-    # Find tbody - try multiple ways
-    tbody = table.find('tbody')
-    if not tbody:
-        print(f"  ⚠️  No tbody found, using table directly")
-        tbody = table
-    
-    rows = tbody.find_all('tr')
-    print(f"  Found {len(rows)} rows in snap counts table")
-    
-    for idx, row in enumerate(rows):
-        # Skip header rows
-        if row.find('th', {'scope': 'col'}):
-            continue
-        
-        # Look for player cell - could be 'th' or 'td'
-        player_cell = row.find('th', {'data-stat': 'player'})
-        if not player_cell:
-            player_cell = row.find('td', {'data-stat': 'player'})
-        
-        if not player_cell:
-            continue
-        
-        player_name = player_cell.get_text(strip=True)
-        if not player_name or player_name == '':
-            continue
-        
-        row_data = {'player': player_name}
-        
-        # Extract player ID from the link
-        player_link = player_cell.find('a', href=True)
-        if player_link:
-            href = player_link['href']
-            player_id = extract_player_id(href)
-            row_data['playerid'] = player_id
-            if not player_id:
-                print(f"  ⚠️  Row {idx}: '{player_name}' - Could not extract ID from href: {href}")
-        else:
-            row_data['playerid'] = None
-            print(f"  ⚠️  Row {idx}: '{player_name}' - No <a> tag found in player cell")
-        
-        # Get all other stats
-        for cell in row.find_all('td'):
-            stat = cell.get('data-stat', '')
-            if stat in column_mapping:
-                value = cell.get_text(strip=True)
-                mapped_column = column_mapping[stat]
-                row_data[mapped_column] = value
-        
-        # Add context
-        row_data['teamid'] = teamid
-        row_data['hometeamid'] = hometeamid
-        row_data['awayteamid'] = awayteamid
-        row_data['season'] = season
-        row_data['week'] = week
-        
-        data_rows.append(row_data)
-        print(f"  ✓ Row {idx}: {player_name} (ID: {row_data.get('playerid', 'MISSING')}) - {row_data.get('pos', 'N/A')}")
-    
-    return data_rows
-
-@task(cache_policy=NO_CACHE)
 def scrape_single_game_data(game_info, season, week):
     """Scrape starters and snap counts data for a single game"""
     away_team = game_info['away_team']
@@ -368,7 +361,7 @@ def scrape_single_game_data(game_info, season, week):
         print(f"Failed to fetch box score for {away_team} vs {home_team}: {str(e)}")
         return {'starters': [], 'snap_counts': []}
 
-    # Convert team names to 3-char codes (try uppercase first for better matching)
+    # Convert team names to 3-char codes
     awayteamid = TEAM_MAPPING.get(away_team.upper()) or TEAM_MAPPING.get(away_team)
     hometeamid = TEAM_MAPPING.get(home_team.upper()) or TEAM_MAPPING.get(home_team)
     
@@ -478,7 +471,6 @@ def save_data_to_files(all_games_data, season, week, week_path):
     if all_starters_data:
         try:
             starters_df = pd.DataFrame(all_starters_data)
-            # Reorder columns for better readability (now includes playerid)
             column_order = ['player', 'playerid', 'pos', 'teamid', 'hometeamid', 'awayteamid', 'season', 'week']
             starters_df = starters_df[column_order]
             
@@ -499,10 +491,8 @@ def save_data_to_files(all_games_data, season, week, week_path):
     if all_snap_counts_data:
         try:
             snap_counts_df = pd.DataFrame(all_snap_counts_data)
-            # Reorder columns for better readability (now includes playerid)
             column_order = ['player', 'playerid', 'pos', 'off_num', 'off_pct', 'def_num', 'def_pct', 
                           'st_num', 'st_pct', 'teamid', 'hometeamid', 'awayteamid', 'season', 'week']
-            # Only include columns that exist in the dataframe
             existing_columns = [col for col in column_order if col in snap_counts_df.columns]
             snap_counts_df = snap_counts_df[existing_columns]
             
@@ -519,14 +509,7 @@ def save_data_to_files(all_games_data, season, week, week_path):
     else:
         print(f"\n✗ No snap counts data collected for Season {season}, Week {week}")
 
-@task(cache_policy=NO_CACHE)
-def ensure_iterable(value):
-    """
-    Ensures the input value is iterable. If not, wraps it in a list.
-    """
-    if isinstance(value, Iterable) and not isinstance(value, str):
-        return value
-    return [value]
+# ========== FLOWS ==========
 
 @flow
 def scrape_starters_and_snap_counts_flow(season, week):
@@ -556,11 +539,11 @@ def main():
     """Main flow to coordinate the entire scraping process"""
     
     # Get current and previous week
-    current_week, previous_week = get_current_and_previous_week()
+    previous_week = get_nfl_previous_week()
     
     # Define seasons and weeks
-    seasons = ensure_iterable([2025])  # Single season or range of seasons
-    weeks = ensure_iterable([previous_week])  # Use previous week
+    seasons = ensure_iterable([2025])
+    weeks = ensure_iterable([19])
 
     # Loop through seasons and weeks
     for season in seasons:
@@ -569,7 +552,7 @@ def main():
             print(f"SCRAPING STARTERS AND SNAP COUNTS - Season {season}, Week {week}")
             print(f"{'='*80}")
             scrape_starters_and_snap_counts_flow(season, week)
-            time.sleep(3)  # Add delay between weeks
+            time.sleep(3)
 
 if __name__ == "__main__":
     main()

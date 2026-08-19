@@ -685,7 +685,7 @@ def main():
     current_week = get_nfl_current_week()
     previous_week = get_nfl_previous_week()
 
-    weeks = [previous_week]
+    weeks = [16, 17, 18]
     #weeks = ensure_iterable(weeks)  # Ensure weeks is iterable
 
     # Loop through seasons and weeks

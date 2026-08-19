@@ -844,7 +844,7 @@ def main():
     
     # Define seasons and weeks
     seasons = [2025]  # Modify as needed
-    weeks = [previous_week]  # Use previous week
+    weeks = [19]   #Use previous week
     
     for season in seasons:
         for week in weeks:

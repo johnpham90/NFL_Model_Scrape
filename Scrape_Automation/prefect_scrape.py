@@ -719,7 +719,7 @@ def main():
     seasons = [2025]  # Single season or range of seasons
     current_week = get_nfl_current_week()
     previous_week = get_nfl_previous_week()
-    weeks = [previous_week]  # Use previous week
+    weeks = [19] #[ # Use previous week
 
     # Loop through seasons and weeks
     for season in seasons:

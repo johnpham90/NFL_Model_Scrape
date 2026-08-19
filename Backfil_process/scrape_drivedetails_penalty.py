@@ -214,11 +214,14 @@ class NFLScheduleScraper:
             print(f"❌ Error parsing data: {e}")
             raise
     
-    def save_to_csv(self, games: List[Dict], filename: str = "nfl_preseason_schedule_2025.csv"):
+    def save_to_csv(self, games: List[Dict], filename: Optional[str] = None):
         """Save games data to CSV file"""
         if not games:
             print("❌ No games to save")
             return
+
+        if filename is None:
+            filename = f"nfl_preseason_schedule_{self.season}.csv"
         
         df = pd.DataFrame(games)
         df.to_csv(filename, index=False)

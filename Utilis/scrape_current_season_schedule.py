@@ -8,6 +8,8 @@ from bs4 import BeautifulSoup, Comment
 import pandas as pd
 import json
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Dict, List, Optional
 
 # Team mapping data
@@ -52,8 +54,8 @@ TEAM_MAPPING = [
 class NFLScheduleScraper:
     def __init__(self):
         self.team_lookup = self._build_team_lookup()
-        self.season = 2025
-        self.url = f"https://www.pro-football-reference.com/years/{self.season}/games.htm"
+        self.season = 2026
+        self.url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates={self.season}&limit=1000"
         
         # Headers to avoid being blocked
         self.headers = {
@@ -93,8 +95,62 @@ class NFLScheduleScraper:
             return 1 <= week_num <= 18
         except ValueError:
             return False
-    
+
     def scrape_schedule(self) -> List[Dict]:
+        """Fetch the NFL schedule from ESPN's public scoreboard API."""
+        print(f"🏈 Scraping {self.season} NFL preseason schedule from ESPN...")
+
+        try:
+            response = requests.get(self.url, timeout=30)
+            response.raise_for_status()
+            events = response.json().get('events', [])
+            games = []
+
+            for event in events:
+                season = event.get('season', {})
+                season_type = season.get('type')
+                if season.get('year') != self.season or season_type not in (1, 2):
+                    continue
+
+                week_number = event.get('week', {}).get('number')
+                if not week_number:
+                    continue
+                week = f"Pre{week_number}" if season_type == 1 else str(week_number)
+                if not self._is_valid_game(week):
+                    continue
+
+                competition = event.get('competitions', [{}])[0]
+                competitors = competition.get('competitors', [])
+                teams = {
+                    competitor.get('homeAway'): competitor.get('team', {}).get('displayName')
+                    for competitor in competitors
+                }
+                if not teams.get('home') or not teams.get('away'):
+                    continue
+
+                event_date = datetime.fromisoformat(event['date'].replace('Z', '+00:00'))
+                event_date = event_date.astimezone(ZoneInfo('America/New_York'))
+                games.append({
+                    'week': week,
+                    'day': event_date.strftime('%a'),
+                    'date': f"{event_date.strftime('%b')} {event_date.day}, {self.season}",
+                    'awayteam': self._get_team_id(teams['away']),
+                    'hometeam': self._get_team_id(teams['home']),
+                    'time': event_date.strftime('%I:%M %p').lstrip('0'),
+                    'season': self.season
+                })
+
+            print(f"\n🎯 Successfully scraped {len(games)} preseason games")
+            return games
+
+        except requests.RequestException as e:
+            print(f"❌ Error fetching data: {e}")
+            raise
+        except (KeyError, TypeError, ValueError) as e:
+            print(f"❌ Error parsing data: {e}")
+            raise
+    
+    def _scrape_schedule_from_pfr(self) -> List[Dict]:
         """Scrape the NFL schedule from Pro Football Reference"""
         print(f"🏈 Scraping {self.season} NFL preseason schedule from Pro Football Reference...")
         
@@ -229,11 +285,14 @@ class NFLScheduleScraper:
             print(f"❌ Error parsing data: {e}")
             raise
     
-    def save_to_csv(self, games: List[Dict], filename: str = "nfl_preseason_schedule_2025.csv"):
+    def save_to_csv(self, games: List[Dict], filename: Optional[str] = None):
         """Save games data to CSV file"""
         if not games:
             print("❌ No games to save")
             return
+
+        if filename is None:
+            filename = f"nfl_preseason_schedule_{self.season}.csv"
         
         df = pd.DataFrame(games)
         df.to_csv(filename, index=False)

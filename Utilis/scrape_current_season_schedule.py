@@ -55,7 +55,7 @@ class NFLScheduleScraper:
     def __init__(self):
         self.team_lookup = self._build_team_lookup()
         self.season = 2026
-        self.url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates={self.season}&limit=1000"
+        self.url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates={self.season}0801-{self.season + 1}0215&limit=1000"
         
         # Headers to avoid being blocked
         self.headers = {
@@ -128,15 +128,20 @@ class NFLScheduleScraper:
                 if not teams.get('home') or not teams.get('away'):
                     continue
 
-                event_date = datetime.fromisoformat(event['date'].replace('Z', '+00:00'))
-                event_date = event_date.astimezone(ZoneInfo('America/New_York'))
+                status_detail = event.get('status', {}).get('type', {}).get('detail', '')
+                time_is_tbd = 'TBD' in status_detail.upper()
+                event_date = None
+                if event.get('date'):
+                    event_date = datetime.fromisoformat(event['date'].replace('Z', '+00:00'))
+                    event_date = event_date.astimezone(ZoneInfo('America/New_York'))
+
                 games.append({
                     'week': week,
-                    'day': event_date.strftime('%a'),
-                    'date': f"{event_date.strftime('%b')} {event_date.day}, {self.season}",
+                    'day': event_date.strftime('%a') if event_date else 'TBD',
+                    'date': f"{event_date.strftime('%b')} {event_date.day}, {event_date.year}" if event_date else 'TBD',
                     'awayteam': self._get_team_id(teams['away']),
                     'hometeam': self._get_team_id(teams['home']),
-                    'time': event_date.strftime('%I:%M %p').lstrip('0'),
+                    'time': 'TBD' if time_is_tbd else event_date.strftime('%I:%M %p').lstrip('0') if event_date else 'TBD',
                     'season': self.season
                 })
 

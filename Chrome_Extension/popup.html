@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PFR Weekly Scraper</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="panel">
+    <header>
+      <p class="eyebrow">PFR DATA TOOL</p>
+      <h1>Weekly scraper</h1>
+      <p class="intro">Fetch a weekly schedule and its linked box scores.</p>
+    </header>
+
+    <form id="scrape-form">
+      <div class="fields">
+        <label>Season <input id="season" name="season" type="number" min="1920" max="2100" required></label>
+        <label>Week <input id="week" name="week" type="number" min="1" max="22" required></label>
+      </div>
+      <label>Export format
+        <select id="format" name="format">
+          <option value="json">JSON bundle</option>
+          <option value="csv">CSV files</option>
+        </select>
+      </label>
+      <label>Run type
+        <select id="run-type" name="run-type">
+          <option value="standard">Base stats + starters + snap counts</option>
+          <option value="drive-details">Drive details only</option>
+        </select>
+      </label>
+      <button id="start" type="submit">Start scrape</button>
+      <button id="cancel" class="secondary" type="button" hidden>Cancel</button>
+    </form>
+
+    <section aria-live="polite" class="status">
+      <div class="status-heading"><span id="status-dot"></span><strong id="status">Ready</strong></div>
+      <p id="detail">Choose a season and week to begin.</p>
+      <progress id="progress" max="1" value="0" hidden></progress>
+    </section>
+    <p id="error" class="error" hidden></p>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

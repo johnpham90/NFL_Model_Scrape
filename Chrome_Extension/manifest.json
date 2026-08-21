@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "PFR Weekly Scraper",
+  "version": "0.1.0",
+  "description": "Manually scrape a Pro Football Reference NFL week and download JSON or CSV data.",
+  "permissions": ["storage", "downloads", "activeTab", "tabs"],
+  "host_permissions": ["https://www.pro-football-reference.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://www.pro-football-reference.com/*"],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["parser.js"],
+      "matches": ["https://www.pro-football-reference.com/*"]
+    }
+  ],
+  "action": {
+    "default_title": "PFR Weekly Scraper",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  }
+}

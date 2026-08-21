@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -63,7 +64,7 @@ def load_bundle(input_path: Path) -> dict[str, Any]:
 
 def find_latest_download() -> Path:
     downloads_dir = Path.home() / "Downloads" / "PFR_Weekly_Scraper"
-    candidates = list(downloads_dir.glob("*_PFR.json"))
+    candidates = list(downloads_dir.glob("*_PFR.json")) + list(downloads_dir.glob("*_Roster.json"))
     if not candidates:
         raise FileNotFoundError(
             f"No PFR JSON files found in {downloads_dir}. "
@@ -142,8 +143,73 @@ def write_category(category: str, records: list[dict[str, Any]], output_dir: Pat
     return output_path
 
 
+def convert_roster(bundle: dict[str, Any], output_root: Path) -> Path:
+    season = int(bundle["season"])
+    output_dir = output_root / str(season)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / "NFL_Rosters.xlsx"
+    records = [record for record in bundle.get("Roster", []) if isinstance(record, dict) and record.get("playerid")]
+    new_frame = pd.DataFrame(records).drop_duplicates(subset=["playerid"], keep="last")
+    run_info = (bundle.get("Run_Info") or [{}])[0]
+    failed_team_ids = {failure.get("teamId") for failure in run_info.get("failures", []) if failure.get("teamId")}
+
+    old_frame = pd.DataFrame()
+    if output_path.exists():
+        try:
+            old_frame = pd.read_excel(output_path, sheet_name="Current_Roster")
+        except (ValueError, OSError):
+            old_frame = pd.DataFrame()
+
+    deltas = []
+    old_by_id = {str(row["playerid"]): row for _, row in old_frame.iterrows()} if "playerid" in old_frame.columns else {}
+    new_by_id = {str(row["playerid"]): row for _, row in new_frame.iterrows()}
+    for player_id, row in new_by_id.items():
+        if player_id not in old_by_id:
+            deltas.append(("Added", player_id, None, row.get("teamid")))
+        elif old_by_id[player_id].get("teamid") != row.get("teamid"):
+            deltas.append(("Team_Change", player_id, old_by_id[player_id].get("teamid"), row.get("teamid")))
+        else:
+            changed_fields = [column for column in new_frame.columns if column != "scrapedAt" and old_by_id[player_id].get(column) != row.get(column)]
+            if changed_fields:
+                deltas.append(("Updated", player_id, row.get("teamid"), ",".join(changed_fields)))
+    for player_id, row in old_by_id.items():
+        if player_id not in new_by_id and row.get("teamid") not in failed_team_ids:
+            deltas.append(("Removed", player_id, row.get("teamid"), None))
+
+    if failed_team_ids and not old_frame.empty:
+        preserved = old_frame[old_frame["teamid"].isin(failed_team_ids)]
+        if not new_frame.empty and "playerid" in new_frame.columns:
+            preserved = preserved[~preserved["playerid"].isin(new_frame["playerid"])]
+        new_frame = pd.concat([new_frame, preserved], ignore_index=True).drop_duplicates(subset=["playerid"], keep="last")
+    new_frame["season"] = season
+    with tempfile.NamedTemporaryFile(prefix="NFL_Rosters_", suffix=".xlsx", dir=output_dir, delete=False) as temp_file:
+        temp_path = Path(temp_file.name)
+    try:
+        with pd.ExcelWriter(temp_path, engine="openpyxl") as writer:
+            new_frame.to_excel(writer, sheet_name="Current_Roster", index=False)
+        temp_path.replace(output_path)
+    finally:
+        temp_path.unlink(missing_ok=True)
+    print(f"Saved current roster: {output_path} ({len(new_frame)} players)")
+    print(f"Roster deltas: {len(deltas)}")
+    for change_type, player_id, old_value, new_value in deltas:
+        print(f"  {change_type}: {player_id} {old_value or ''} -> {new_value or ''}".rstrip())
+    if failed_team_ids:
+        print(f"Preserved prior rows for failed teams: {', '.join(sorted(failed_team_ids))}")
+    return output_path
+
+
 def convert(input_path: Path, output_root: Path) -> list[Path]:
     bundle = load_bundle(input_path)
+    if "Roster" in bundle:
+        season = int(bundle["season"])
+        output_dir = output_root / str(season)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        json_output_path = output_dir / f"{season}_Roster.json"
+        if input_path.resolve() != json_output_path.resolve():
+            shutil.copy2(input_path, json_output_path)
+        print(f"Saved JSON: {json_output_path}")
+        return [convert_roster(bundle, output_root)]
     season = int(bundle["season"])
     week = int(bundle["week"])
     output_dir = output_root / str(season) / f"Week_{week}"

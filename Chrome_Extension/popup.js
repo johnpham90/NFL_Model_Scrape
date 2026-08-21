@@ -42,6 +42,13 @@ form.addEventListener('submit', async (event) => {
   const week = Number(weekInput.value);
   const format = formatInput.value;
   const runType = runTypeInput.value;
+  if (runType === 'roster') {
+    await chrome.storage.local.set({ season, week, format, runType });
+    setState(true); setStatus('Starting', `Preparing the ${season} roster...`);
+    const response = await chrome.runtime.sendMessage({ type: 'start', season, format, mode: 'roster' });
+    if (!response?.accepted) { setState(false); error.textContent = response?.error || 'Could not start the roster scraper.'; error.hidden = false; }
+    return;
+  }
   const options = runType === 'drive-details'
     ? { base: false, players: false, driveDetails: true }
     : { base: true, players: true, driveDetails: false };

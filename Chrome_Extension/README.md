@@ -36,3 +36,21 @@ python .\Chrome_Extension\json_to_excel.py input.json --output-root "D:\NFLStats
 The converter copies the JSON into the same season/week folder, flattens `gameInfo`, renames JSON metadata to the Python scraper's column names, removes duplicate rows, and writes one `.xlsx` file per populated category.
 
 PFR may rate-limit automated requests. Use a reasonable pace and only scrape data you are permitted to access.
+
+## Roster snapshots
+
+Choose **Season roster snapshot** in the extension. The visible tab visits all 32 team roster pages for the selected season and downloads `<season>_Roster.json` and `<season>_Roster.csv`.
+
+Run the converter afterward:
+
+```powershell
+python .\Chrome_Extension\json_to_excel.py
+```
+
+Roster JSON is copied to `C:\NFLStats\data\<season>\<season>_Roster.json`, and the current snapshot is written to:
+
+```text
+C:\NFLStats\data\<season>\NFL_Rosters.xlsx
+```
+
+The workbook contains `Current_Roster`. Repeated runs update the current rows and print `Added`, `Removed`, `Team_Change`, and `Updated` records. Failed team pages do not cause removals for that team.

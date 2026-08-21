@@ -1,6 +1,12 @@
 import { csvBlobs, jsonBlob } from './exporter.js';
 
 const BASE_URL = 'https://www.pro-football-reference.com';
+const ROSTER_TEAMS = [
+  ['crd', 'ARI'], ['atl', 'ATL'], ['rav', 'BAL'], ['buf', 'BUF'], ['car', 'CAR'], ['chi', 'CHI'], ['cin', 'CIN'], ['cle', 'CLE'],
+  ['dal', 'DAL'], ['den', 'DEN'], ['det', 'DET'], ['gnb', 'GNB'], ['htx', 'HOU'], ['clt', 'IND'], ['jax', 'JAX'], ['kan', 'KAN'],
+  ['rai', 'LVR'], ['sdg', 'LAC'], ['ram', 'LAR'], ['mia', 'MIA'], ['min', 'MIN'], ['nwe', 'NWE'], ['nor', 'NOR'], ['nyg', 'NYG'],
+  ['nyj', 'NYJ'], ['phi', 'PHI'], ['pit', 'PIT'], ['sfo', 'SFO'], ['sea', 'SEA'], ['tam', 'TAM'], ['oti', 'TEN'], ['was', 'WAS']
+].map(([slug, teamId]) => ({ slug, teamId }));
 const initialState = { status: 'ready', message: 'Choose a season and week to begin.', current: 0, total: 0 };
 let state = { ...initialState };
 let run = null;
@@ -37,6 +43,12 @@ async function startRun(message) {
   if (run) throw new Error('A scrape is already running.');
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) throw new Error('No active browser tab is available.');
+  if (message.mode === 'roster') {
+    run = { ...message, tabId: tab.id, rosterTeams: ROSTER_TEAMS, roster: [], failures: [], index: 0 };
+    broadcast({ status: 'running', message: `Opening the ${message.season} roster...`, current: 0, total: ROSTER_TEAMS.length });
+    await navigate(`${BASE_URL}/teams/${ROSTER_TEAMS[0].slug}/${message.season}_roster.htm`);
+    return;
+  }
   run = { ...message, tabId: tab.id, schedule: [], data: emptyData(), failures: [], index: -1 };
   broadcast({ status: 'running', message: `Opening ${message.season}, Week ${message.week}...`, current: 0, total: 1 });
   await navigate(`${BASE_URL}/years/${message.season}/week_${message.week}.htm`);
@@ -78,11 +90,42 @@ async function finishRun() {
   broadcast({ status: 'complete', message: `${gamesFound} games processed. Downloads are starting.`, current: gamesFound, total: gamesFound, gamesFound, failures });
 }
 
+async function finishRosterRun() {
+  const completedTeams = run.rosterTeams.filter((team) => !run.failures.some((failure) => failure.slug === team.slug));
+  const bundle = {
+    schemaVersion: 1,
+    season: run.season,
+    generatedAt: new Date().toISOString(),
+    Roster: run.roster,
+    Run_Info: [{ mode: 'roster', season: run.season, teamsFound: completedTeams.length, teamsExpected: run.rosterTeams.length, complete: completedTeams.length === run.rosterTeams.length, failures: run.failures }]
+  };
+  const json = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+  const csv = csvBlobs({ Roster: run.roster })[0];
+  const files = [
+    { name: `${run.season}_Roster.json`, blob: json },
+    { name: `${run.season}_Roster.csv`, blob: csv.blob }
+  ];
+  for (const file of files) {
+    await chrome.downloads.download({ url: await blobToDataUrl(file.blob), filename: `PFR_Weekly_Scraper/${file.name}`, saveAs: true });
+  }
+  const rosterCount = run.roster.length;
+  const failures = run.failures.length;
+  run = null;
+  broadcast({ status: 'complete', message: `${rosterCount} roster players collected. Downloads are starting.`, current: ROSTER_TEAMS.length, total: ROSTER_TEAMS.length, gamesFound: rosterCount, failures });
+}
+
 async function handlePageReady(message, sender) {
   if (!run || sender.tab?.id !== run.tabId) return;
   if (message.rateLimited) {
     run = null;
     broadcast({ status: 'failed', message: 'PFR appears to have rate-limited this run.', error: 'Wait before trying again and use the built-in pacing.' });
+    return;
+  }
+  if (run.mode === 'roster' && message.pageType === 'roster') {
+    const team = run.rosterTeams[run.index];
+    if (!team || !message.url.includes(`/teams/${team.slug}/`)) return;
+    broadcast({ status: 'running', message: `Reading ${team.teamId} roster (${run.index + 1}/${run.rosterTeams.length})`, current: run.index, total: run.rosterTeams.length });
+    await sendToTab({ type: 'read-roster', season: run.season, teamSlug: team.slug, teamId: team.teamId });
     return;
   }
   if (message.pageType === 'schedule' && run.index === -1) {
@@ -121,6 +164,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     run.index = 0;
     broadcast({ status: 'running', message: `Found ${run.schedule.length} games. Navigating to the first box score...`, current: 0, total: run.schedule.length });
     waitBeforeNavigation(run.schedule[0].boxScoreUrl).catch((error) => broadcast({ status: 'failed', message: error.message, error: error.message }));
+    return false;
+  }
+  if (message.type === 'roster-result') {
+    if (!run || run.mode !== 'roster' || sender.tab?.id !== run.tabId) return false;
+    run.roster.push(...message.records);
+    run.index += 1;
+    if (run.index >= run.rosterTeams.length) finishRosterRun().catch((error) => broadcast({ status: 'failed', message: error.message, error: error.message }));
+    else {
+      const team = run.rosterTeams[run.index];
+      waitBeforeNavigation(`${BASE_URL}/teams/${team.slug}/${run.season}_roster.htm`).catch((error) => broadcast({ status: 'failed', message: error.message, error: error.message }));
+    }
+    return false;
+  }
+  if (message.type === 'roster-failed') {
+    if (!run || run.mode !== 'roster' || sender.tab?.id !== run.tabId) return false;
+    run.failures.push({ ...run.rosterTeams[run.index], error: message.error });
+    run.index += 1;
+    if (run.index >= run.rosterTeams.length) finishRosterRun().catch((error) => broadcast({ status: 'failed', message: error.message, error: error.message }));
+    else {
+      const team = run.rosterTeams[run.index];
+      waitBeforeNavigation(`${BASE_URL}/teams/${team.slug}/${run.season}_roster.htm`).catch((error) => broadcast({ status: 'failed', message: error.message, error: error.message }));
+    }
     return false;
   }
   if (message.type === 'boxscore-result') {

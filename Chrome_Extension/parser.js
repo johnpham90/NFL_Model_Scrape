@@ -231,6 +231,31 @@ function parseDriveDetails(doc, game, metadata) {
   return rows;
 }
 
+export function parseRoster(doc, season, teamSlug, teamId) {
+  const table = findTable(doc, 'roster');
+  const records = [];
+  for (const row of table?.querySelectorAll('tbody tr, tr') || []) {
+    if (row.classList.contains('thead') || row.querySelector('[scope="col"]')) continue;
+    const playerCell = row.querySelector('[data-stat="player"]');
+    const playerName = text(playerCell);
+    if (!playerCell || !playerName) continue;
+    const record = {
+      playername: playerName,
+      playerid: playerId(playerCell),
+      teamid: teamId,
+      team_slug: teamSlug,
+      season: Number(season)
+    };
+    for (const cell of row.querySelectorAll('[data-stat]')) {
+      const key = cell.getAttribute('data-stat');
+      const value = text(cell);
+      if (key && value && key !== 'player') record[key] = value;
+    }
+    if (record.playerid) records.push(record);
+  }
+  return records;
+}
+
 export function parseBoxScore(doc, game, options = { base: true, players: true, driveDetails: false }) {
   const metadata = { date: game.date, season: game.season, week: game.week, awayTeam: game.awayTeam, homeTeam: game.homeTeam, boxScoreUrl: game.boxScoreUrl };
   const data = { Game_Summary: options.base ? [{ ...game, gameInfo: parseGameInfo(doc) }] : [], Team_Stats: [], Drives: [], Rushing: [], Passing: [], Receiving: [], Defense: [], Returns: [], Kicking: [], Player_Offense: [], Player_Defense: [], ExpectedPoints: [], Starters: [], Snap_Counts: [], Drive_Details: [] };

@@ -8,6 +8,7 @@ async function parser() {
 function pageType() {
   if (/\/boxscores\/[^/]+\.htm$/.test(location.pathname)) return 'boxscore';
   if (/\/years\/\d{4}\/week_\d+\.htm$/.test(location.pathname)) return 'schedule';
+  if (/\/teams\/[a-z0-9]+\/\d{4}_roster\.htm$/.test(location.pathname)) return 'roster';
   return 'other';
 }
 
@@ -22,6 +23,12 @@ function looksRateLimited() {
 chrome.runtime.sendMessage({ type: 'page-ready', pageType: pageType(), url: location.href, rateLimited: looksRateLimited() });
 
 chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === 'read-roster') {
+    parser().then(({ parseRoster }) => {
+      const records = parseRoster(document, message.season, message.teamSlug, message.teamId);
+      chrome.runtime.sendMessage({ type: 'roster-result', records });
+    }).catch((error) => chrome.runtime.sendMessage({ type: 'roster-failed', error: `Roster parser: ${error.message}` }));
+  }
   if (message.type === 'read-schedule') {
     parser().then(({ parseSchedule }) => {
       const games = parseSchedule(document, message.season, message.week);
